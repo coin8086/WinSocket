@@ -13,7 +13,7 @@ namespace My {
     class SecureSocket : public ISocket
     {
     public:
-        SecureSocket(SOCKET s, bool server) : m_s(s), m_server(server), m_cert(0), m_cred({}), m_ctx({}), m_size({}) {}
+        SecureSocket(SOCKET s, bool server) : m_s(s), m_server(server) {}
 
         ~SecureSocket();
 
@@ -30,10 +30,10 @@ namespace My {
 
         SOCKET m_s;
         bool m_server;
-        PCCERT_CONTEXT m_cert;
-        CredHandle m_cred;
-        CtxtHandle m_ctx;
-        SecPkgContext_StreamSizes m_size;
+        PCCERT_CONTEXT m_cert{};
+        CredHandle m_cred{};
+        CtxtHandle m_ctx{};
+        SecPkgContext_StreamSizes m_size{};
         static PSecurityFunctionTable sspi;
     };
 }
