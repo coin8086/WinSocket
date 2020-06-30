@@ -103,12 +103,19 @@ int __cdecl main(int argc, char** argv)
 
     std::unique_ptr<My::ISocket> client = nullptr;
     if (usingTLS) {
-        client = std::unique_ptr<My::ISocket>(new My::SecureSocket(ClientSocket));
         printf("Enabling TLS on socket!");
+        auto ss = new My::SecureSocket(ClientSocket);
+        if (!ss->init()) {
+            printf("Init TLS failed!");
+            closesocket(ClientSocket);
+            WSACleanup();
+            return 1;
+        }
+        client = std::unique_ptr<My::ISocket>(ss);
     }
     else {
-        client = std::unique_ptr<My::ISocket>(new My::Socket(ClientSocket));
         printf("disabling TLS on socket!");
+        client = std::unique_ptr<My::ISocket>(new My::Socket(ClientSocket));
     }
 
     // Receive until the peer shuts down the connection
