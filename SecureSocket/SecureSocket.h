@@ -7,13 +7,13 @@
 #include <sspi.h>
 
 #include <Wincrypt.h>
-#include "ISocket.h"
+#include "Socket.h"
 
 namespace My {
-    class SecureSocket : public ISocket
+    class SecureSocket : public Socket
     {
     public:
-        SecureSocket(SOCKET s, bool server) : m_s(s), m_server(server) {}
+        SecureSocket(SOCKET s, bool server) : Socket(s), m_server(server) {}
 
         ~SecureSocket();
 
@@ -28,7 +28,6 @@ namespace My {
 
         bool create_cred(const char* name);
 
-        SOCKET m_s;
         bool m_server;
         PCCERT_CONTEXT m_cert{};
         CredHandle m_cred{};
