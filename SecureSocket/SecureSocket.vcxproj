@@ -139,11 +139,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Certificate.cpp" />
     <ClCompile Include="ISocket.cpp" />
     <ClCompile Include="SecureSocket.cpp" />
     <ClCompile Include="Socket.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Certificate.h" />
     <ClInclude Include="common.h" />
     <ClInclude Include="ISocket.h" />
     <ClInclude Include="SecureSocket.h" />

@@ -104,7 +104,7 @@ int __cdecl main(int argc, char** argv)
     std::unique_ptr<My::ISocket> client = nullptr;
     if (usingTLS) {
         printf("Enabling TLS on socket!");
-        auto ss = new My::SecureSocket(ClientSocket);
+        auto ss = new My::SecureSocket(ClientSocket, true);
         if (!ss->init()) {
             printf("Init TLS failed!");
             closesocket(ClientSocket);

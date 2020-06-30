@@ -1,14 +1,19 @@
 #pragma once
 
 #include "common.h"
+
+//SECURITY_WIN32 is required by sspi.h
+#define SECURITY_WIN32
 #include <sspi.h>
+
+#include <Wincrypt.h>
 #include "ISocket.h"
 
 namespace My {
     class SecureSocket : public ISocket
     {
     public:
-        SecureSocket(SOCKET s) : m_s(s), m_ctx({}) {}
+        SecureSocket(SOCKET s, bool server) : m_s(s), m_server(server), m_cert(0), m_cred({}), m_ctx({}), m_size({}) {}
 
         ~SecureSocket();
 
@@ -21,7 +26,12 @@ namespace My {
     private:
         bool negotiate();
 
+        bool create_cred(const char* name);
+
         SOCKET m_s;
+        bool m_server;
+        PCCERT_CONTEXT m_cert;
+        CredHandle m_cred;
         CtxtHandle m_ctx;
         SecPkgContext_StreamSizes m_size;
         static PSecurityFunctionTable sspi;
