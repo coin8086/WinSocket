@@ -26,7 +26,7 @@ namespace My {
     private:
         bool negotiate();
 
-        bool create_cred(const char* name);
+        bool create_cred(const wchar_t * name);
 
         bool m_server;
         PCCERT_CONTEXT m_cert{};
