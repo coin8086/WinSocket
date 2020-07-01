@@ -24,12 +24,16 @@ namespace My {
         virtual int receive(char* buf, int length) override;
 
     private:
-        bool negotiate();
+        bool negotiate_as_server();
 
-        bool create_cred(const wchar_t * name);
+        bool negotiate_as_client();
+
+        bool create_server_cred(const wchar_t * server_name);
+
+        bool create_client_cred();
 
         bool m_server;
-        PCCERT_CONTEXT m_cert{};
+        PCCERT_CONTEXT m_cert{};    //Only required by server
         CredHandle m_cred{};
         CtxtHandle m_ctx{};
         SecPkgContext_StreamSizes m_size{};
