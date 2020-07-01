@@ -5,6 +5,10 @@
 #include <ws2tcpip.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <memory>
+
+#include "..\SecureSocket\Socket.h"
+#include "..\SecureSocket\SecureSocket.h"
 
 
 // Need to link with Ws2_32.lib, Mswsock.lib, and Advapi32.lib
@@ -29,9 +33,14 @@ int __cdecl main(int argc, char** argv)
     int recvbuflen = DEFAULT_BUFLEN;
 
     // Validate the parameters
-    if (argc != 2) {
-        printf("usage: %s server-name\n", argv[0]);
+    if (argc < 2) {
+        printf("usage: %s server-name [-t]\n", argv[0]);
         return 1;
+    }
+
+    bool usingTLS = false;
+    if (argc == 3 && strcmp(argv[2], "-t") == 0) {
+        usingTLS = true;
     }
 
     // Initialize Winsock
@@ -84,8 +93,25 @@ int __cdecl main(int argc, char** argv)
         return 1;
     }
 
+    std::unique_ptr<My::ISocket> client = nullptr;
+    if (usingTLS) {
+        printf("Enabling TLS on socket!");
+        auto ss = new My::SecureSocket(ConnectSocket, false);
+        if (!ss->init()) {
+            printf("Init TLS failed!");
+            closesocket(ConnectSocket);
+            WSACleanup();
+            return 1;
+        }
+        client = std::unique_ptr<My::ISocket>(ss);
+    }
+    else {
+        printf("disabling TLS on socket!");
+        client = std::unique_ptr<My::ISocket>(new My::Socket(ConnectSocket));
+    }
+
     // Send an initial buffer
-    iResult = send(ConnectSocket, sendbuf, (int)strlen(sendbuf), 0);
+    iResult = client->send(sendbuf, (int)strlen(sendbuf));
     if (iResult == SOCKET_ERROR) {
         printf("send failed with error: %d\n", WSAGetLastError());
         closesocket(ConnectSocket);
@@ -107,7 +133,7 @@ int __cdecl main(int argc, char** argv)
     // Receive until the peer closes the connection
     do {
 
-        iResult = recv(ConnectSocket, recvbuf, recvbuflen, 0);
+        iResult = client->receive(recvbuf, recvbuflen);
         if (iResult > 0)
             printf("Bytes received: %d\n", iResult);
         else if (iResult == 0)

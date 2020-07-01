@@ -141,6 +141,11 @@
   <ItemGroup>
     <ClCompile Include="Main.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SecureSocket\SecureSocket.vcxproj">
+      <Project>{774e5e53-5d51-4a4e-af6b-e265c19f21b7}</Project>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
