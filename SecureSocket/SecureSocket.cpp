@@ -19,6 +19,14 @@ My::SecureSocket::~SecureSocket()
 
 bool My::SecureSocket::init()
 {
+    //NOTE: A server name can be got by Server Name Indication(SNI) from a client in handshake. And 
+    //that requires parsing the ClientHello message and thus the knowledge of TLS record protocal.
+    //Here we simplify the procedure by using a fixed name no matter what name the client requests.
+    //And a client can refuse the server for a different name from the requested one, or accept it.
+    //That depends on the client's choice, like accepting a self-issued certificate.
+    if (m_server && !m_server_name) {
+        return false;
+    }
     if (!sspi) {
         sspi = InitSecurityInterface();
         if (!sspi) {
@@ -48,9 +56,9 @@ bool My::SecureSocket::negotiate_as_client()
     return false;
 }
 
-bool My::SecureSocket::create_server_cred(const wchar_t* server_name)
+bool My::SecureSocket::create_server_cred()
 {
-    m_cert = Certificate::get(server_name);
+    m_cert = Certificate::get(m_server_name);
     if (!m_cert) {
         return false;
     }
