@@ -146,13 +146,7 @@ int __cdecl main(int argc, char** argv)
     } while (iResult > 0);
 
     // shutdown the connection since we're done
-    iResult = shutdown(ClientSocket, SD_SEND);
-    if (iResult == SOCKET_ERROR) {
-        printf("shutdown failed with error: %d\n", WSAGetLastError());
-        closesocket(ClientSocket);
-        WSACleanup();
-        return 1;
-    }
+    client->shutdown();
 
     // cleanup
     closesocket(ClientSocket);

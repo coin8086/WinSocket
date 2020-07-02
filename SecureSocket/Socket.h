@@ -17,6 +17,8 @@ namespace My {
 
         virtual int receive(char* buf, int length) override;
 
+        virtual void shutdown() override;
+
     private:
         SOCKET m_s;
     };

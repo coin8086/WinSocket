@@ -196,6 +196,7 @@ int My::SecureSocket::receive(char* buf, int length)
 void My::SecureSocket::shutdown()
 {
     if (!m_secured) {
+        Socket::shutdown();
         return;
     }
 
@@ -249,6 +250,7 @@ void My::SecureSocket::shutdown()
         }
     }
     m_secured = false;
+    Socket::shutdown();
 }
 
 bool My::SecureSocket::negotiate_as_server()

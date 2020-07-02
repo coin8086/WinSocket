@@ -9,3 +9,8 @@ int My::Socket::receive(char* buf, int length)
 {
     return ::recv(m_s, buf, length, 0);
 }
+
+void My::Socket::shutdown()
+{
+    ::shutdown(m_s, SD_SEND);
+}

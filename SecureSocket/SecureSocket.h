@@ -26,7 +26,7 @@ namespace My {
 
         virtual int receive(char* buf, int length) override;
 
-        void shutdown();
+        virtual void shutdown() override;
 
     private:
         bool negotiate_as_server();
