@@ -1,6 +1,9 @@
 #include "SecureSocket.h"
 #include "Certificate.h"
 #include <schannel.h>
+#include <vector>
+#include <cstring>
+#include <iostream>
 
 #pragma comment(lib, "Secur32.lib")
 
@@ -19,7 +22,7 @@ My::SecureSocket::~SecureSocket()
 
 bool My::SecureSocket::init()
 {
-    //NOTE: A server name can be got by Server Name Indication(SNI) from a client in handshake. And 
+    //NOTE: A server name can be got by Server Name Indication(SNI) from a client in handshake. And
     //that requires parsing the ClientHello message and thus the knowledge of TLS record protocal.
     //Here we simplify the procedure by using a fixed name no matter what name the client requests.
     //And a client can refuse the server for a different name from the requested one, or accept it.
@@ -38,17 +41,340 @@ bool My::SecureSocket::init()
 
 int My::SecureSocket::send(const char* buf, int length)
 {
-    return -1;
+    //NOTE: Should we split a long buf(longer than m_size.cbMaximumMessage) into small pieces to send one by one?
+    if (!m_secured || !buf || length <= 0 || length > m_size.cbMaximumMessage) {
+        return -1;
+    }
+    std::vector<char> send_buf(length + m_size.cbHeader + m_size.cbTrailer);
+    memcpy(send_buf.data() + m_size.cbHeader, buf, length);
+
+    SecBuffer out_buf[4];
+    SecBufferDesc msg;
+
+    msg.ulVersion = SECBUFFER_VERSION;
+    msg.cBuffers = 4;
+    msg.pBuffers = out_buf;
+
+    out_buf[0].pvBuffer = send_buf.data();
+    out_buf[0].cbBuffer = m_size.cbHeader;
+    out_buf[0].BufferType = SECBUFFER_STREAM_HEADER;
+
+    out_buf[1].pvBuffer = send_buf.data() + m_size.cbHeader;
+    out_buf[1].cbBuffer = length;
+    out_buf[1].BufferType = SECBUFFER_DATA;
+
+    out_buf[2].pvBuffer = send_buf.data() + m_size.cbHeader + length;
+    out_buf[2].cbBuffer = m_size.cbTrailer;
+    out_buf[2].BufferType = SECBUFFER_STREAM_TRAILER;
+
+    out_buf[3].BufferType = SECBUFFER_EMPTY;
+
+    auto status = sspi->EncryptMessage(&m_ctx, 0, &msg, 0);
+    int result = -1;
+    if (SUCCEEDED(status))
+    {
+        result = Socket::send(send_buf.data(), out_buf[0].cbBuffer + out_buf[1].cbBuffer + out_buf[2].cbBuffer);
+    }
+    return result;
 }
 
 int My::SecureSocket::receive(char* buf, int length)
 {
-    return -1;
+    if (!m_secured || !buf || length <= 0) {
+        return -1;
+    }
+
+    //NOTE: according to https://docs.microsoft.com/en-us/windows/win32/secauthn/decryptmessage--schannel
+    //there should only be 2 buffers here, and the second must be of type SECBUFFER_TOKEN with a "security token"(what?).
+    SecBuffer in_buf[4];
+    SecBufferDesc msg;
+    msg.ulVersion = SECBUFFER_VERSION;
+    msg.cBuffers = 4;
+    msg.pBuffers = in_buf;
+
+    SECURITY_STATUS status = SEC_E_INCOMPLETE_MESSAGE;
+
+    int read = m_buf.size();
+    if (read > 0) {
+        //There are already some extra content received in buffer in the negotiation procedure.
+        in_buf[0].pvBuffer = m_buf.data();
+        in_buf[0].cbBuffer = read;
+        in_buf[0].BufferType = SECBUFFER_DATA;
+        in_buf[1].BufferType = SECBUFFER_EMPTY;
+        in_buf[2].BufferType = SECBUFFER_EMPTY;
+        in_buf[3].BufferType = SECBUFFER_EMPTY;
+
+        status = sspi->DecryptMessage(&m_ctx, &msg, 0, nullptr);
+    }
+
+    while (status == SEC_E_INCOMPLETE_MESSAGE)
+    {
+        if (read == m_buf.size()) {
+            int to_size = m_buf.size() * 2;
+            if (to_size < init_buf_size) {
+                to_size = init_buf_size;
+            }
+            m_buf.resize(to_size);
+        }
+
+        int received = Socket::receive(m_buf.data() + read, m_buf.size() - read);
+        if (received <= 0)
+            break;
+        read += received;
+
+        in_buf[0].pvBuffer = m_buf.data();
+        in_buf[0].cbBuffer = read;
+        in_buf[0].BufferType = SECBUFFER_DATA;
+        in_buf[1].BufferType = SECBUFFER_EMPTY;
+        in_buf[2].BufferType = SECBUFFER_EMPTY;
+        in_buf[3].BufferType = SECBUFFER_EMPTY;
+
+        status = sspi->DecryptMessage(&m_ctx, &msg, 0, nullptr);
+    }
+
+    int result = -1;
+    if (status == SEC_E_OK)
+    {
+        PSecBuffer data_buf = nullptr;
+        for (int i = 1; i < 4; i++) //NOTE: Why from 1, not 0?
+        {
+            if (in_buf[i].BufferType == SECBUFFER_DATA)
+            {
+                data_buf = &in_buf[i];
+                break;
+            }
+        }
+
+        //NOTE: Is there a way to avoid/alleviate the short-buffer problem?
+        if (data_buf && data_buf->cbBuffer > length)
+        {
+            //NOTE: It seems the data_buf->pvBuffer points to an address in our m_buf.
+            //Also note that data_buf->cbBuffer can be 0, according to the document.
+            memcpy(buf, data_buf->pvBuffer, data_buf->cbBuffer);
+            result = data_buf->cbBuffer;
+
+            //Save extra content read in buf
+            PSecBuffer extra_buf = nullptr;
+            for (int i = 1; i < 4; i++)
+            {
+                if (in_buf[i].BufferType == SECBUFFER_EXTRA)
+                {
+                    extra_buf = &in_buf[i];
+                    break;
+                }
+            }
+            if (extra_buf)
+            {
+                //NOTE: Here memmove is used, rather than memcpy, because there may be overlap in src and dst.
+                memmove(m_buf.data(), extra_buf->pvBuffer, extra_buf->cbBuffer);
+                m_buf.resize(extra_buf->cbBuffer);
+            }
+            else {
+                m_buf.clear();
+            }
+        }
+    }
+    else if (status == SEC_I_CONTEXT_EXPIRED) {
+        //TLS is shutting down.
+        //NOTE: The document says we need to shutdown the TLS session:
+        //https://docs.microsoft.com/en-us/windows/win32/secauthn/shutting-down-an-schannel-connection
+        //However we simply skip the shutdown operation here and just mark the socket as "down".
+        m_secured = false;
+        result = -2;
+    }
+    else if (status == SEC_I_RENEGOTIATE) {
+        //NOTE: Renegotiation is not supported. User should shutdown the session in this case.
+        m_secured = false;
+        result = -3;
+    }
+    if (result < 0) {
+        m_buf.clear();
+    }
+    return result;
+}
+
+void My::SecureSocket::shutdown()
+{
+    if (!m_secured) {
+        return;
+    }
+
+    DWORD dwType = SCHANNEL_SHUTDOWN;
+    SecBuffer out_buf[1];
+    SecBufferDesc out_buf_desc;
+    SECURITY_STATUS status;
+
+    out_buf[0].pvBuffer = &dwType;
+    out_buf[0].BufferType = SECBUFFER_TOKEN;
+    out_buf[0].cbBuffer = sizeof(dwType);
+
+    out_buf_desc.cBuffers = 1;
+    out_buf_desc.pBuffers = out_buf;
+    out_buf_desc.ulVersion = SECBUFFER_VERSION;
+
+    status = sspi->ApplyControlToken(&m_ctx, &out_buf_desc);
+    if (SUCCEEDED(status))
+    {
+        DWORD req_context_flags = ASC_REQ_ALLOCATE_MEMORY | ASC_REQ_CONFIDENTIALITY | ASC_REQ_EXTENDED_ERROR |
+            ASC_REQ_REPLAY_DETECT | ASC_REQ_SEQUENCE_DETECT | ASC_REQ_STREAM;
+        DWORD ret_context_flags;
+        TimeStamp ts;
+
+        out_buf[0].pvBuffer = nullptr;
+        out_buf[0].BufferType = SECBUFFER_TOKEN;
+        out_buf[0].cbBuffer = 0;
+
+        out_buf_desc.cBuffers = 1;
+        out_buf_desc.pBuffers = out_buf;
+        out_buf_desc.ulVersion = SECBUFFER_VERSION;
+
+        //NOTE: It seems we need to a loop of calls to AcceptSecurityContext, according to
+        //https://docs.microsoft.com/en-us/windows/win32/secauthn/shutting-down-an-schannel-connection
+        //However we simply call it once here.
+        status = sspi->AcceptSecurityContext(
+            &m_cred,
+            &m_ctx,
+            nullptr,
+            req_context_flags,
+            0,
+            nullptr,
+            &out_buf_desc,
+            &ret_context_flags,
+            &ts
+        );
+
+        if (out_buf[0].pvBuffer != nullptr && out_buf[0].cbBuffer != 0)
+        {
+            Socket::send((const char *)out_buf[0].pvBuffer, out_buf[0].cbBuffer);
+        }
+    }
+    m_secured = false;
 }
 
 bool My::SecureSocket::negotiate_as_server()
 {
-    return false;
+    bool ok = false;
+    int read = 0;
+
+    while (true) {
+        //Increase buffer when necessary
+        if (read == m_buf.size()) {
+            int to_size = m_buf.size() * 2;
+            if (to_size < init_buf_size) {
+                to_size = init_buf_size;
+            }
+            m_buf.resize(to_size);
+        }
+
+        //Read in buffer
+        int received = Socket::receive(m_buf.data() + read, m_buf.size() - read);
+        if (received <= 0)
+            break;
+        read += received;
+
+        //AcceptSecurityContext
+        DWORD req_context_flags = ASC_REQ_ALLOCATE_MEMORY | ASC_REQ_CONFIDENTIALITY | ASC_REQ_EXTENDED_ERROR |
+            ASC_REQ_REPLAY_DETECT | ASC_REQ_SEQUENCE_DETECT | ASC_REQ_STREAM;
+        DWORD ret_context_flags = 0;
+        TimeStamp ts;
+
+        //NOTE: Shall we have a third in-buffer of type SECBUFFER_ALERT as said in
+        //https://docs.microsoft.com/en-us/windows/win32/secauthn/acceptsecuritycontext--schannel ?
+        SecBuffer in_buf[2];
+        SecBuffer out_buf[1] = {};
+        SecBufferDesc in_buf_desc;
+        SecBufferDesc out_buf_desc;
+
+        in_buf[0].pvBuffer = m_buf.data();
+        in_buf[0].cbBuffer = read;
+        in_buf[0].BufferType = SECBUFFER_TOKEN;
+
+        in_buf[1].pvBuffer = nullptr;
+        in_buf[1].cbBuffer = 0;
+        in_buf[1].BufferType = SECBUFFER_EMPTY;
+
+        in_buf_desc.cBuffers = 2;
+        in_buf_desc.pBuffers = in_buf;
+        in_buf_desc.ulVersion = SECBUFFER_VERSION;
+
+        out_buf_desc.cBuffers = 1;
+        out_buf_desc.pBuffers = out_buf;
+        out_buf_desc.ulVersion = SECBUFFER_VERSION;
+
+        auto status = sspi->AcceptSecurityContext(
+            &m_cred,
+            m_ctx.dwLower != 0 || m_ctx.dwUpper != 0 ? &m_ctx : nullptr,
+            &in_buf_desc,
+            req_context_flags,
+            0,
+            m_ctx.dwLower != 0 || m_ctx.dwUpper != 0 ? nullptr : &m_ctx,
+            &out_buf_desc,
+            &ret_context_flags,
+            &ts
+        );
+
+        //Send content in out_buf if any
+        if (out_buf[0].cbBuffer != 0 && out_buf[0].pvBuffer != nullptr)
+        {
+            auto sent = Socket::send((char *)out_buf[0].pvBuffer, out_buf[0].cbBuffer);
+            sspi->FreeContextBuffer(out_buf[0].pvBuffer);
+            if (sent <= 0) {
+                break;
+            }
+        }
+
+        if (status == SEC_E_INCOMPLETE_MESSAGE) {
+            //Continue to read more...
+            continue;
+        }
+
+        if (status == SEC_I_CONTINUE_NEEDED) {
+            if (in_buf[1].BufferType == SECBUFFER_EXTRA) {
+                //Process any extra content read in before continue
+                memmove(m_buf.data(), m_buf.data() + read - in_buf[1].cbBuffer, in_buf[1].cbBuffer);
+                read = in_buf[1].cbBuffer;
+            }
+            else {
+                read = 0;
+            }
+            continue;
+        }
+
+        if (status == SEC_E_OK)
+        {
+            if (in_buf[1].BufferType == SECBUFFER_EXTRA) {
+                //Save any extra content read in
+                //NOTE: Here memmove is used, rather than memcpy, because there may be overlap in src and dst.
+                memmove(m_buf.data(), m_buf.data() + read - in_buf[1].cbBuffer, in_buf[1].cbBuffer);
+                m_buf.resize(in_buf[1].cbBuffer);
+            }
+            else {
+                m_buf.clear();
+            }
+            ok = true;
+            break;
+        }
+
+        std::cerr << "Error in server negotiation AcceptSecurityContext: " << status << std::endl;
+        break;
+    }
+
+    if (ok) {
+        auto status = sspi->QueryContextAttributes(&m_ctx, SECPKG_ATTR_STREAM_SIZES, &m_size);
+        if (status == SEC_E_OK) {
+            m_secured = true;
+        }
+        else {
+            std::cerr << "Error in server negotiation QueryContextAttributes: " << status << std::endl;
+            ok = false;
+        }
+    }
+
+    if (!ok) {
+        //Clear any content in buffer
+        m_buf.clear();
+    }
+    return ok;
 }
 
 bool My::SecureSocket::negotiate_as_client()
@@ -113,4 +439,3 @@ bool My::SecureSocket::create_client_cred()
     );
     return (status == SEC_E_OK);
 }
-

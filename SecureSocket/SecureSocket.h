@@ -8,6 +8,8 @@
 
 #include <Wincrypt.h>
 #include "Socket.h"
+#include <vector>
+
 
 namespace My {
     class SecureSocket : public Socket
@@ -24,6 +26,8 @@ namespace My {
 
         virtual int receive(char* buf, int length) override;
 
+        void shutdown();
+
     private:
         bool negotiate_as_server();
 
@@ -33,13 +37,18 @@ namespace My {
 
         bool create_client_cred();
 
+        bool m_secured = false;
         bool m_server;
         const wchar_t* m_server_name;
         PCCERT_CONTEXT m_cert{};    //Only required by server
         CredHandle m_cred{};
         CtxtHandle m_ctx{};
         SecPkgContext_StreamSizes m_size{};
+        //NOTE: Here a vector is used as a dynamic array. And it's better to have some way
+        //(maybe a custom allocator?) to allocate memory without initializing it for vector::resize().
+        std::vector<char> m_buf;
         static PSecurityFunctionTable sspi;
+        static const int init_buf_size = 1024 * 32;
     };
 }
 
