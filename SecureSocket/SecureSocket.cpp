@@ -490,7 +490,7 @@ bool My::SecureSocket::negotiate_as_client()
             nullptr,
             req_flags,
             0,
-            SECURITY_NATIVE_DREP,
+            0,
             &in_buf_desc,
             0,
             nullptr,
@@ -607,9 +607,7 @@ bool My::SecureSocket::send_client_hello()
         const_cast<wchar_t *>(m_server_name),
         req_flags,
         0,
-        //TODO: This parameter is not used with Digest or Schannel. Set it to zero.
-        //See https://docs.microsoft.com/en-us/windows/win32/api/sspi/nf-sspi-initializesecuritycontexta?redirectedfrom=MSDN
-        SECURITY_NATIVE_DREP,
+        0,
         nullptr,
         0,
         &m_ctx,
