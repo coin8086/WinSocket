@@ -231,11 +231,6 @@ int My::SecureSocket::receive(char* buf, int length)
 
 void My::SecureSocket::shutdown()
 {
-    if (!m_secured) {
-        Socket::shutdown();
-        return;
-    }
-
     DWORD dwType = SCHANNEL_SHUTDOWN;
     SecBuffer out_buf[1];
     SecBufferDesc out_buf_desc;
