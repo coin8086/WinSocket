@@ -318,7 +318,7 @@ bool My::SecureSocket::negotiate_as_server()
         //NOTE: Shall we have a third in-buffer of type SECBUFFER_ALERT as said in
         //https://docs.microsoft.com/en-us/windows/win32/secauthn/acceptsecuritycontext--schannel ?
         SecBuffer in_buf[2];
-        SecBuffer out_buf[1] = {};
+        SecBuffer out_buf[1];
         SecBufferDesc in_buf_desc;
         SecBufferDesc out_buf_desc;
 
@@ -329,6 +329,8 @@ bool My::SecureSocket::negotiate_as_server()
         in_buf[1].pvBuffer = nullptr;
         in_buf[1].cbBuffer = 0;
         in_buf[1].BufferType = SECBUFFER_EMPTY;
+
+        out_buf[0] = {};
 
         in_buf_desc.cBuffers = 2;
         in_buf_desc.pBuffers = in_buf;
@@ -355,7 +357,8 @@ bool My::SecureSocket::negotiate_as_server()
         {
             auto sent = Socket::send((char *)out_buf[0].pvBuffer, out_buf[0].cbBuffer);
             sspi->FreeContextBuffer(out_buf[0].pvBuffer);
-            if (sent <= 0) {
+            if (sent != out_buf[0].cbBuffer) {
+                Log::error("[SecureSocket::negotiate_as_server] sent: ", sent, " total: ", out_buf[0].cbBuffer);
                 break;
             }
         }
