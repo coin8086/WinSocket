@@ -249,8 +249,15 @@ void My::SecureSocket::shutdown()
     status = sspi->ApplyControlToken(&m_ctx, &out_buf_desc);
     if (SUCCEEDED(status))
     {
-        DWORD req_context_flags = ASC_REQ_ALLOCATE_MEMORY | ASC_REQ_CONFIDENTIALITY | ASC_REQ_EXTENDED_ERROR |
-            ASC_REQ_REPLAY_DETECT | ASC_REQ_SEQUENCE_DETECT | ASC_REQ_STREAM;
+        DWORD req_context_flags;
+        if (m_server) {
+            req_context_flags = ASC_REQ_ALLOCATE_MEMORY | ASC_REQ_CONFIDENTIALITY | ASC_REQ_EXTENDED_ERROR |
+                ASC_REQ_REPLAY_DETECT | ASC_REQ_SEQUENCE_DETECT | ASC_REQ_STREAM;
+        }
+        else {
+            req_context_flags = ISC_REQ_ALLOCATE_MEMORY | ISC_REQ_CONFIDENTIALITY | ISC_REQ_EXTENDED_ERROR |
+                ISC_REQ_REPLAY_DETECT | ISC_REQ_SEQUENCE_DETECT | ISC_REQ_STREAM;
+        }
         DWORD ret_context_flags;
         TimeStamp ts;
 
@@ -265,24 +272,49 @@ void My::SecureSocket::shutdown()
         //NOTE: It seems we need to a loop of calls to AcceptSecurityContext, according to
         //https://docs.microsoft.com/en-us/windows/win32/secauthn/shutting-down-an-schannel-connection
         //However we simply call it once here.
-        status = sspi->AcceptSecurityContext(
-            &m_cred,
-            &m_ctx,
-            nullptr,
-            req_context_flags,
-            0,
-            nullptr,
-            &out_buf_desc,
-            &ret_context_flags,
-            &ts
-        );
-        Log::info("[SecureSocket::shutdown] AcceptSecurityContext: ", status);
+        if (m_server) {
+            status = sspi->AcceptSecurityContext(
+                &m_cred,
+                &m_ctx,
+                nullptr,
+                req_context_flags,
+                0,
+                nullptr,
+                &out_buf_desc,
+                &ret_context_flags,
+                &ts
+            );
+            if (FAILED(status)) {
+                Log::warn("[SecureSocket::shutdown] AcceptSecurityContext failed with: ", status);
+            }
+        }
+        else {
+            status = sspi->InitializeSecurityContext(
+                &m_cred,
+                &m_ctx,
+                nullptr,
+                req_context_flags,
+                0,
+                0,
+                nullptr,
+                0,
+                nullptr,
+                &out_buf_desc,
+                &ret_context_flags,
+                &ts
+            );
+            if (FAILED(status)) {
+                Log::warn("[SecureSocket::shutdown] InitializeSecurityContext failed with: ", status);
+            }
+        }
 
         if (out_buf[0].pvBuffer != nullptr && out_buf[0].cbBuffer != 0)
         {
             int sent = Socket::send((const char *)out_buf[0].pvBuffer, out_buf[0].cbBuffer);
             sspi->FreeContextBuffer(out_buf[0].pvBuffer);
-            Log::info("[SecureSocket::shutdown] send: ", sent);
+            if (sent != out_buf[0].cbBuffer) {
+                Log::warn("[SecureSocket::shutdown] send: ", sent, " total: ", out_buf[0].cbBuffer);
+            }
         }
     }
     else {
