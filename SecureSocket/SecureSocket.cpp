@@ -281,6 +281,7 @@ void My::SecureSocket::shutdown()
         if (out_buf[0].pvBuffer != nullptr && out_buf[0].cbBuffer != 0)
         {
             int sent = Socket::send((const char *)out_buf[0].pvBuffer, out_buf[0].cbBuffer);
+            sspi->FreeContextBuffer(out_buf[0].pvBuffer);
             Log::info("[SecureSocket::shutdown] send: ", sent);
         }
     }
