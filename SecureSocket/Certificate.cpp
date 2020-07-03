@@ -1,5 +1,5 @@
 #include "Certificate.h"
-#include <iostream>
+#include "Log.h"
 
 #pragma comment(lib, "Crypt32.lib")
 
@@ -16,7 +16,7 @@ PCCERT_CONTEXT My::Certificate::get(const wchar_t * name)
         "My"
     );
     if (!store) {
-        std::cerr << "Failed opening cert store. Error code = " << GetLastError() << std::endl;
+        Log::error("CertOpenStore failed with error: ", GetLastError());
         return nullptr;
     }
     //NOTE:

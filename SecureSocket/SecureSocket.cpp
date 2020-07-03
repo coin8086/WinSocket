@@ -3,7 +3,7 @@
 #include <schannel.h>
 #include <vector>
 #include <cstring>
-#include <iostream>
+#include "Log.h"
 
 #pragma comment(lib, "Secur32.lib")
 
@@ -11,6 +11,7 @@ PSecurityFunctionTable My::SecureSocket::sspi = nullptr;
 
 My::SecureSocket::~SecureSocket()
 {
+    Log::info("[SecureSocket::~SecureSocket]");
     if (sspi) {
         sspi->DeleteSecurityContext(&m_ctx);
         sspi->FreeCredentialsHandle(&m_cred);
@@ -73,7 +74,17 @@ int My::SecureSocket::send(const char* buf, int length)
     int result = -1;
     if (SUCCEEDED(status))
     {
-        result = Socket::send(send_buf.data(), out_buf[0].cbBuffer + out_buf[1].cbBuffer + out_buf[2].cbBuffer);
+        int total = out_buf[0].cbBuffer + out_buf[1].cbBuffer + out_buf[2].cbBuffer;
+        int sent = Socket::send(send_buf.data(), total);
+        if (sent == total) {
+            result = sent;
+        }
+        else {
+            Log::error("[SecureSocket::send] Sent ", sent, " bytes. Should be ", total);
+        }
+    }
+    else {
+        Log::error("[SecureSocket::send] EncryptMessage failed with error: ", status);
     }
     return result;
 }
@@ -105,6 +116,7 @@ int My::SecureSocket::receive(char* buf, int length)
         in_buf[3].BufferType = SECBUFFER_EMPTY;
 
         status = sspi->DecryptMessage(&m_ctx, &msg, 0, nullptr);
+        Log::info("[SecureSocket::receive] DecryptMessage: ", status);
     }
 
     while (status == SEC_E_INCOMPLETE_MESSAGE)
@@ -130,6 +142,7 @@ int My::SecureSocket::receive(char* buf, int length)
         in_buf[3].BufferType = SECBUFFER_EMPTY;
 
         status = sspi->DecryptMessage(&m_ctx, &msg, 0, nullptr);
+        Log::info("[SecureSocket::receive] DecryptMessage: ", status);
     }
 
     int result = -1;
@@ -145,36 +158,43 @@ int My::SecureSocket::receive(char* buf, int length)
             }
         }
 
-        //NOTE: Is there a way to avoid/alleviate the short-buffer problem?
-        if (data_buf && data_buf->cbBuffer > length)
+        if (data_buf)
         {
-            //NOTE: It seems the data_buf->pvBuffer points to an address in our m_buf.
-            //Also note that data_buf->cbBuffer can be 0, according to the document.
-            memcpy(buf, data_buf->pvBuffer, data_buf->cbBuffer);
-            result = data_buf->cbBuffer;
-
-            //Save extra content read in buf
-            PSecBuffer extra_buf = nullptr;
-            for (int i = 1; i < 4; i++)
-            {
-                if (in_buf[i].BufferType == SECBUFFER_EXTRA)
-                {
-                    extra_buf = &in_buf[i];
-                    break;
-                }
-            }
-            if (extra_buf)
-            {
-                //NOTE: Here memmove is used, rather than memcpy, because there may be overlap in src and dst.
-                memmove(m_buf.data(), extra_buf->pvBuffer, extra_buf->cbBuffer);
-                m_buf.resize(extra_buf->cbBuffer);
+            if (data_buf->cbBuffer > length) {
+                //NOTE: Is there a way to avoid/alleviate the short-buffer problem?
+                Log::error("[SecureSocket::receive] Input buffer is not big enough. At least ", data_buf->cbBuffer, " bytes is required.");
             }
             else {
-                m_buf.clear();
+                //NOTE: It seems the data_buf->pvBuffer points to an address in our m_buf.
+                //Also note that data_buf->cbBuffer can be 0, according to the document.
+                memcpy(buf, data_buf->pvBuffer, data_buf->cbBuffer);
+                result = data_buf->cbBuffer;
+
+                //Save extra content read in buf
+                PSecBuffer extra_buf = nullptr;
+                for (int i = 1; i < 4; i++)
+                {
+                    if (in_buf[i].BufferType == SECBUFFER_EXTRA)
+                    {
+                        extra_buf = &in_buf[i];
+                        break;
+                    }
+                }
+                if (extra_buf)
+                {
+                    Log::info("[SecureSocket::receive] Extra content of ", extra_buf->cbBuffer, " bytes is detected.");
+                    //NOTE: Here memmove is used, rather than memcpy, because there may be overlap in src and dst.
+                    memmove(m_buf.data(), extra_buf->pvBuffer, extra_buf->cbBuffer);
+                    m_buf.resize(extra_buf->cbBuffer);
+                }
+                else {
+                    m_buf.clear();
+                }
             }
         }
     }
     else if (status == SEC_I_CONTEXT_EXPIRED) {
+        Log::info("[SecureSocket::receive] SEC_I_CONTEXT_EXPIRED is received!");
         //TLS is shutting down.
         //NOTE: The document says we need to shutdown the TLS session:
         //https://docs.microsoft.com/en-us/windows/win32/secauthn/shutting-down-an-schannel-connection
@@ -183,9 +203,13 @@ int My::SecureSocket::receive(char* buf, int length)
         result = -2;
     }
     else if (status == SEC_I_RENEGOTIATE) {
+        Log::info("[SecureSocket::receive] SEC_I_RENEGOTIATE is received!");
         //NOTE: Renegotiation is not supported. User should shutdown the session in this case.
         m_secured = false;
         result = -3;
+    }
+    else {
+        Log::error("[SecureSocket::receive] DecryptMessage failed with error: ", status);
     }
     if (result < 0) {
         m_buf.clear();
@@ -243,11 +267,16 @@ void My::SecureSocket::shutdown()
             &ret_context_flags,
             &ts
         );
+        Log::info("[SecureSocket::shutdown] AcceptSecurityContext: ", status);
 
         if (out_buf[0].pvBuffer != nullptr && out_buf[0].cbBuffer != 0)
         {
-            Socket::send((const char *)out_buf[0].pvBuffer, out_buf[0].cbBuffer);
+            int sent = Socket::send((const char *)out_buf[0].pvBuffer, out_buf[0].cbBuffer);
+            Log::info("[SecureSocket::shutdown] send: ", sent);
         }
+    }
+    else {
+        Log::warn("[SecureSocket::shutdown] ApplyControlToken failed with: ", status);
     }
     m_secured = false;
     Socket::shutdown();
@@ -326,12 +355,15 @@ bool My::SecureSocket::negotiate_as_server()
         }
 
         if (status == SEC_E_INCOMPLETE_MESSAGE) {
+            Log::info("[SecureSocket::negotiate_as_server] SEC_E_INCOMPLETE_MESSAGE");
             //Continue to read more...
             continue;
         }
 
         if (status == SEC_I_CONTINUE_NEEDED) {
+            Log::info("[SecureSocket::negotiate_as_server] SEC_I_CONTINUE_NEEDED");
             if (in_buf[1].BufferType == SECBUFFER_EXTRA) {
+                Log::info("[SecureSocket::negotiate_as_server] Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
                 //Process any extra content read in before continue
                 memmove(m_buf.data(), m_buf.data() + read - in_buf[1].cbBuffer, in_buf[1].cbBuffer);
                 read = in_buf[1].cbBuffer;
@@ -344,7 +376,9 @@ bool My::SecureSocket::negotiate_as_server()
 
         if (status == SEC_E_OK)
         {
+            Log::info("[SecureSocket::negotiate_as_server] SEC_E_OK");
             if (in_buf[1].BufferType == SECBUFFER_EXTRA) {
+                Log::info("[SecureSocket::negotiate_as_server] Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
                 //Save any extra content read in
                 //NOTE: Here memmove is used, rather than memcpy, because there may be overlap in src and dst.
                 memmove(m_buf.data(), m_buf.data() + read - in_buf[1].cbBuffer, in_buf[1].cbBuffer);
@@ -357,7 +391,7 @@ bool My::SecureSocket::negotiate_as_server()
             break;
         }
 
-        std::cerr << "Error in server negotiation AcceptSecurityContext: " << status << std::endl;
+        Log::error("[SecureSocket::negotiate_as_server] AcceptSecurityContext failed with: ", status);
         break;
     }
 
@@ -367,7 +401,7 @@ bool My::SecureSocket::negotiate_as_server()
             m_secured = true;
         }
         else {
-            std::cerr << "Error in server negotiation QueryContextAttributes: " << status << std::endl;
+            Log::error("[SecureSocket::negotiate_as_server] QueryContextAttributes failed with: ", status);
             ok = false;
         }
     }
