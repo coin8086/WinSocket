@@ -33,6 +33,8 @@ namespace My {
 
         bool negotiate_as_client();
 
+        bool send_client_hello();
+
         bool create_server_cred();
 
         bool create_client_cred();

@@ -21,7 +21,7 @@ My::SecureSocket::~SecureSocket()
     }
 }
 
-//If init failed, the state of the object is undefined. Then a new object should be used to make 
+//If init failed, the state of the object is undefined. Then a new object should be used to make
 //a TLS connection, rather than call init again.
 bool My::SecureSocket::init()
 {
@@ -34,6 +34,8 @@ bool My::SecureSocket::init()
     //And a client can refuse the server for a different name from the requested one, or accept it.
     //That depends on the client's choice, like accepting a self-issued certificate.
     if (m_server && !m_server_name) {
+        //For server socket, a name is required to get a certificate associated with the name.
+        //For client socket, it's optional.
         return false;
     }
     if (!sspi) {
@@ -49,6 +51,7 @@ bool My::SecureSocket::init()
 int My::SecureSocket::send(const char* buf, int length)
 {
     //NOTE: Should we split a long buf(longer than m_size.cbMaximumMessage) into small pieces to send one by one?
+    //TODO: cbMaximumMessage includes the header and trailer, which should be reduced before comparing with length.
     if (!m_secured || !buf || length <= 0 || length > m_size.cbMaximumMessage) {
         return -1;
     }
@@ -424,7 +427,207 @@ bool My::SecureSocket::negotiate_as_server()
 
 bool My::SecureSocket::negotiate_as_client()
 {
-    return false;
+    if (!send_client_hello()) {
+        return false;
+    }
+
+    bool ok = false;
+    int read = 0;
+
+    while (true) {
+        //Increase buffer when necessary
+        if (read == m_buf.size()) {
+            int to_size = m_buf.size() * 2;
+            if (to_size < init_buf_size) {
+                to_size = init_buf_size;
+            }
+            m_buf.resize(to_size);
+        }
+
+        //Read in buffer
+        int received = Socket::receive(m_buf.data() + read, m_buf.size() - read);
+        if (received <= 0)
+            break;
+        read += received;
+
+        //InitializeSecurityContext
+        //NOTE: Should we use the returned context flags from send_client_hello?
+        DWORD req_flags = ISC_REQ_ALLOCATE_MEMORY | ISC_REQ_CONFIDENTIALITY | ISC_REQ_EXTENDED_ERROR |
+            ISC_REQ_REPLAY_DETECT | ISC_REQ_SEQUENCE_DETECT | ISC_REQ_STREAM |
+            ISC_REQ_MANUAL_CRED_VALIDATION; // Allow manual validation of server certificate.
+        DWORD ret_flags = 0;
+        TimeStamp ts;
+
+        SecBuffer in_buf[2];
+        SecBuffer out_buf[1];
+        SecBufferDesc in_buf_desc;
+        SecBufferDesc out_buf_desc;
+
+        in_buf[0].pvBuffer = m_buf.data();
+        in_buf[0].cbBuffer = read;
+        in_buf[0].BufferType = SECBUFFER_TOKEN;
+
+        in_buf[1].pvBuffer = nullptr;
+        in_buf[1].cbBuffer = 0;
+        in_buf[1].BufferType = SECBUFFER_EMPTY;
+
+        in_buf_desc.cBuffers = 2;
+        in_buf_desc.pBuffers = in_buf;
+        in_buf_desc.ulVersion = SECBUFFER_VERSION;
+
+        out_buf[0].pvBuffer = nullptr;
+        out_buf[0].BufferType = SECBUFFER_TOKEN;
+        out_buf[0].cbBuffer = 0;
+
+        out_buf_desc.cBuffers = 1;
+        out_buf_desc.pBuffers = out_buf;
+        out_buf_desc.ulVersion = SECBUFFER_VERSION;
+
+        auto status = sspi->InitializeSecurityContext(
+            &m_cred,
+            &m_ctx,
+            nullptr,
+            req_flags,
+            0,
+            SECURITY_NATIVE_DREP,
+            &in_buf_desc,
+            0,
+            nullptr,
+            &out_buf_desc,
+            &ret_flags,
+            &ts
+        );
+
+        //Send content in out_buf if any
+        if (out_buf[0].cbBuffer != 0 && out_buf[0].pvBuffer)
+        {
+            int sent = Socket::send((char *)out_buf[0].pvBuffer, out_buf[0].cbBuffer);
+            sspi->FreeContextBuffer(out_buf[0].pvBuffer);
+            if (sent != out_buf[0].cbBuffer)
+            {
+                Log::error("[SecureSocket::negotiate_as_client] sent: ", sent, " total: ", out_buf[0].cbBuffer);
+                break;
+            }
+        }
+
+        //Here we can validate server certificate by QueryContextAttributes with SECPKG_ATTR_REMOTE_CERT_CONTEXT.
+        //If we don't do validation, then we accept any certificate server sent.
+        //
+        //PCCERT_CONTEXT server_cert = nullptr;
+        //HRESULT hr = sspi->QueryContextAttributes(&m_cred, SECPKG_ATTR_REMOTE_CERT_CONTEXT, &server_cert);
+        //if (SUCCEEDED(hr)) {
+        //    //Validate sever_cert here...
+        //}
+
+        //if status == SEC_I_INCOMPLETE_CREDENTIALS, it means server is requesting a client certificate.
+        //Then we need to build a new client CredHandle with a certificate, and call InitializeSecurityContext
+        //with the new CredHandle hereafter.
+
+        if (status == SEC_E_INCOMPLETE_MESSAGE) {
+            Log::info("[SecureSocket::negotiate_as_client] SEC_E_INCOMPLETE_MESSAGE");
+            continue;
+        }
+
+        if (status == SEC_I_CONTINUE_NEEDED) {
+            Log::info("[SecureSocket::negotiate_as_client] SEC_I_CONTINUE_NEEDED");
+            if (in_buf[1].BufferType == SECBUFFER_EXTRA) {
+                Log::info("[SecureSocket::negotiate_as_client] Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
+                //Process any extra content read in before continue
+                memmove(m_buf.data(), m_buf.data() + read - in_buf[1].cbBuffer, in_buf[1].cbBuffer);
+                read = in_buf[1].cbBuffer;
+            }
+            else {
+                read = 0;
+            }
+            continue;
+        }
+
+        if (status == SEC_E_OK)
+        {
+            Log::info("[SecureSocket::negotiate_as_client] SEC_E_OK");
+            if (in_buf[1].BufferType == SECBUFFER_EXTRA) {
+                Log::info("[SecureSocket::negotiate_as_client] Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
+                //Save any extra content read in
+                //NOTE: Here memmove is used, rather than memcpy, because there may be overlap in src and dst.
+                memmove(m_buf.data(), m_buf.data() + read - in_buf[1].cbBuffer, in_buf[1].cbBuffer);
+                m_buf.resize(in_buf[1].cbBuffer);
+            }
+            else {
+                m_buf.clear();
+            }
+            ok = true;
+            break;
+        }
+
+        Log::error("[SecureSocket::negotiate_as_client] InitializeSecurityContext failed with: ", status);
+        break;
+    }
+
+    if (ok) {
+        auto status = sspi->QueryContextAttributes(&m_ctx, SECPKG_ATTR_STREAM_SIZES, &m_size);
+        if (status == SEC_E_OK) {
+            m_secured = true;
+        }
+        else {
+            Log::error("[SecureSocket::negotiate_as_client] QueryContextAttributes failed with: ", status);
+            ok = false;
+        }
+    }
+
+    if (!ok) {
+        //Clear any content in buffer
+        m_buf.clear();
+    }
+    return ok;
+}
+
+//Also get m_ctx for client.
+bool My::SecureSocket::send_client_hello()
+{
+    DWORD req_flags = ISC_REQ_ALLOCATE_MEMORY | ISC_REQ_CONFIDENTIALITY | ISC_REQ_EXTENDED_ERROR |
+        ISC_REQ_REPLAY_DETECT | ISC_REQ_SEQUENCE_DETECT | ISC_REQ_STREAM |
+        ISC_REQ_MANUAL_CRED_VALIDATION; // Allow manual validation of server certificate.
+
+    TimeStamp ts;
+    SecBuffer out_buf[1];
+    SecBufferDesc out_buf_desc;
+
+    out_buf[0].pvBuffer = nullptr;
+    out_buf[0].BufferType = SECBUFFER_TOKEN;
+    out_buf[0].cbBuffer = 0;
+
+    out_buf_desc.cBuffers = 1;
+    out_buf_desc.pBuffers = out_buf;
+    out_buf_desc.ulVersion = SECBUFFER_VERSION;
+
+    auto status = sspi->InitializeSecurityContextW(
+        &m_cred,
+        nullptr,
+        const_cast<wchar_t *>(m_server_name),
+        req_flags,
+        0,
+        //TODO: This parameter is not used with Digest or Schannel. Set it to zero.
+        //See https://docs.microsoft.com/en-us/windows/win32/api/sspi/nf-sspi-initializesecuritycontexta?redirectedfrom=MSDN
+        SECURITY_NATIVE_DREP,
+        nullptr,
+        0,
+        &m_ctx,
+        &out_buf_desc,
+        &req_flags,
+        &ts
+    );
+
+    bool ok = false;
+    if (status == SEC_I_CONTINUE_NEEDED && out_buf[0].cbBuffer > 0 && out_buf[0].pvBuffer)
+    {
+        int sent = Socket::send((char*)out_buf[0].pvBuffer, out_buf[0].cbBuffer);
+        sspi->FreeContextBuffer(out_buf[0].pvBuffer);
+        if (sent == out_buf[0].cbBuffer)
+        {
+            ok = true;
+        }
+    }
+    return ok;
 }
 
 bool My::SecureSocket::create_server_cred()
