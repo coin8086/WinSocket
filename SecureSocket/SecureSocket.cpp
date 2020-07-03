@@ -21,8 +21,13 @@ My::SecureSocket::~SecureSocket()
     }
 }
 
+//If init failed, the state of the object is undefined. Then a new object should be used to make 
+//a TLS connection, rather than call init again.
 bool My::SecureSocket::init()
 {
+    if (m_secured) {
+        return true;
+    }
     //NOTE: A server name can be got by Server Name Indication(SNI) from a client in handshake. And
     //that requires parsing the ClientHello message and thus the knowledge of TLS record protocal.
     //Here we simplify the procedure by using a fixed name no matter what name the client requests.
@@ -37,7 +42,8 @@ bool My::SecureSocket::init()
             return false;
         }
     }
-    return m_server ? negotiate_as_server() : negotiate_as_client();
+    return m_server ? create_server_cred() && negotiate_as_server() :
+        create_client_cred() &&  negotiate_as_client();
 }
 
 int My::SecureSocket::send(const char* buf, int length)
@@ -80,7 +86,7 @@ int My::SecureSocket::send(const char* buf, int length)
             result = sent;
         }
         else {
-            Log::error("[SecureSocket::send] Sent ", sent, " bytes. Should be ", total);
+            Log::error("[SecureSocket::send] Sent an encrypted message of", sent, " bytes. Should be ", total);
         }
     }
     else {
