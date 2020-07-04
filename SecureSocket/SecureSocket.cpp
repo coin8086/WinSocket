@@ -413,8 +413,7 @@ bool My::SecureSocket::negotiate_as_server()
             if (in_buf[1].BufferType == SECBUFFER_EXTRA) {
                 Log::info("[SecureSocket::negotiate_as_server] Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
                 //Process any extra content read in before continue
-                assert(m_buf.data() + read - in_buf[1].cbBuffer == in_buf[1].pvBuffer);
-                memmove(m_buf.data(), in_buf[1].pvBuffer, in_buf[1].cbBuffer);
+                memmove(m_buf.data(), m_buf.data() + read - in_buf[1].cbBuffer, in_buf[1].cbBuffer);
                 read = in_buf[1].cbBuffer;
             }
             else {
@@ -430,8 +429,7 @@ bool My::SecureSocket::negotiate_as_server()
                 Log::info("[SecureSocket::negotiate_as_server] Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
                 //Save any extra content read in
                 //NOTE: Here memmove is used, rather than memcpy, because there may be overlap in src and dst.
-                assert(m_buf.data() + read - in_buf[1].cbBuffer == in_buf[1].pvBuffer);
-                memmove(m_buf.data(), in_buf[1].pvBuffer, in_buf[1].cbBuffer);
+                memmove(m_buf.data(), m_buf.data() + read - in_buf[1].cbBuffer, in_buf[1].cbBuffer);
                 m_buf.resize(in_buf[1].cbBuffer);
             }
             else {
@@ -572,8 +570,7 @@ bool My::SecureSocket::negotiate_as_client()
             if (in_buf[1].BufferType == SECBUFFER_EXTRA) {
                 Log::info("[SecureSocket::negotiate_as_client] Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
                 //Process any extra content read in before continue
-                assert(m_buf.data() + read - in_buf[1].cbBuffer == in_buf[1].pvBuffer);
-                memmove(m_buf.data(), in_buf[1].pvBuffer, in_buf[1].cbBuffer);
+                memmove(m_buf.data(), m_buf.data() + read - in_buf[1].cbBuffer, in_buf[1].cbBuffer);
                 read = in_buf[1].cbBuffer;
             }
             else {
@@ -589,8 +586,7 @@ bool My::SecureSocket::negotiate_as_client()
                 Log::info("[SecureSocket::negotiate_as_client] Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
                 //Save any extra content read in
                 //NOTE: Here memmove is used, rather than memcpy, because there may be overlap in src and dst.
-                assert(m_buf.data() + read - in_buf[1].cbBuffer == in_buf[1].pvBuffer);
-                memmove(m_buf.data(), in_buf[1].pvBuffer, in_buf[1].cbBuffer);
+                memmove(m_buf.data(), m_buf.data() + read - in_buf[1].cbBuffer, in_buf[1].cbBuffer);
                 m_buf.resize(in_buf[1].cbBuffer);
             }
             else {
