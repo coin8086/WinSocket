@@ -17,7 +17,7 @@
 #pragma comment (lib, "AdvApi32.lib")
 
 
-#define DEFAULT_BUFLEN 512
+#define DEFAULT_BUFLEN 8192
 #define DEFAULT_PORT "27015"
 
 int __cdecl main(int argc, char** argv)
@@ -95,18 +95,22 @@ int __cdecl main(int argc, char** argv)
 
     std::unique_ptr<My::ISocket> client = nullptr;
     if (usingTLS) {
-        printf("Enabling TLS on socket!");
+        printf("Enabling TLS...\n");
         auto ss = new My::SecureSocket(ConnectSocket, false);
         if (!ss->init()) {
             printf("Init TLS failed!");
+            delete ss;
             closesocket(ConnectSocket);
             WSACleanup();
             return 1;
         }
+        else {
+            printf("TLS is enabled!");
+        }
         client = std::unique_ptr<My::ISocket>(ss);
     }
     else {
-        printf("disabling TLS on socket!");
+        printf("No TLS!\n");
         client = std::unique_ptr<My::ISocket>(new My::Socket(ConnectSocket));
     }
 
@@ -123,16 +127,12 @@ int __cdecl main(int argc, char** argv)
 
     // Receive until the peer closes the connection
     do {
-
         iResult = client->receive(recvbuf, recvbuflen);
-        if (iResult > 0)
+        if (iResult >= 0)
             printf("Bytes received: %d\n", iResult);
-        else if (iResult == 0)
-            printf("Connection closed\n");
         else
-            printf("recv failed with error: %d\n", WSAGetLastError());
-
-    } while (iResult > 0);
+            printf("recv failed with error: %d\n", iResult);
+    } while (iResult >= 0);
 
     client->shutdown();
 

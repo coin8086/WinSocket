@@ -103,47 +103,44 @@ int __cdecl main(int argc, char** argv)
 
     std::unique_ptr<My::ISocket> client = nullptr;
     if (usingTLS) {
-        printf("Enabling TLS on socket!");
+        printf("Enabling TLS...\n");
         auto ss = new My::SecureSocket(ClientSocket, true, L"localhost");
         if (!ss->init()) {
             printf("Init TLS failed!");
+            delete ss;
             closesocket(ClientSocket);
             WSACleanup();
             return 1;
+        }
+        else {
+            printf("TLS is enabled!");
         }
         client = std::unique_ptr<My::ISocket>(ss);
     }
     else {
-        printf("disabling TLS on socket!");
+        printf("No TLS!\n");
         client = std::unique_ptr<My::ISocket>(new My::Socket(ClientSocket));
     }
 
     // Receive until the peer shuts down the connection
-    do {
+    while (true) {
         iResult = client->receive(recvbuf, recvbuflen);
-        if (iResult > 0) {
+        if (iResult >= 0) {
             printf("Bytes received: %d\n", iResult);
-
-            // Echo the buffer back to the sender
-            iSendResult = client->send(recvbuf, iResult);
-            if (iSendResult == SOCKET_ERROR) {
-                printf("send failed with error: %d\n", WSAGetLastError());
-                closesocket(ClientSocket);
-                WSACleanup();
-                return 1;
+            if (iResult > 0) {
+                // Echo the buffer back to the sender
+                iSendResult = client->send(recvbuf, iResult);
+                printf("Bytes sent: %d\n", iSendResult);
+                if (iSendResult != iResult) {
+                    break;
+                }
             }
-            printf("Bytes sent: %d\n", iSendResult);
         }
-        else if (iResult == 0)
-            printf("Connection closing...\n");
         else {
-            printf("recv failed with error: %d\n", WSAGetLastError());
-            closesocket(ClientSocket);
-            WSACleanup();
-            return 1;
+            printf("receive failed with error: %d\n", iResult);
+            break;
         }
-
-    } while (iResult > 0);
+    }
 
     // shutdown the connection since we're done
     client->shutdown();
