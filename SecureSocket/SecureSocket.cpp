@@ -158,8 +158,10 @@ int My::SecureSocket::receive(char* buf, int length)
         }
 
         int received = Socket::receive(m_buf.data() + read, m_buf.size() - read);
-        if (received <= 0)
+        if (received <= 0) {
+            Log::error("[SecureSocket::receive] Socket::receive failed with: ", received);
             break;
+        }
         read += received;
 
         in_buf[0].pvBuffer = m_buf.data();

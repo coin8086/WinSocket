@@ -7,8 +7,12 @@
 #include <ws2tcpip.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <io.h>
+#include <fcntl.h>
 #include <memory>
+#include <vector>
 
+#include "..\SecureSocket\Log.h"
 #include "..\SecureSocket\Socket.h"
 #include "..\SecureSocket\SecureSocket.h"
 
@@ -16,23 +20,19 @@
 #pragma comment (lib, "Ws2_32.lib")
 // #pragma comment (lib, "Mswsock.lib")
 
-#define DEFAULT_BUFLEN (1024 * 8)
+#define DEFAULT_BUFLEN 8192
 #define DEFAULT_PORT "27015"
 
 int __cdecl main(int argc, char** argv)
 {
-    WSADATA wsaData;
-    int iResult;
+    WSADATA wsa_data;
+    int result;
 
-    SOCKET ListenSocket = INVALID_SOCKET;
-    SOCKET ClientSocket = INVALID_SOCKET;
+    SOCKET listen_socket = INVALID_SOCKET;
+    SOCKET accept_socket = INVALID_SOCKET;
 
-    struct addrinfo* result = NULL;
     struct addrinfo hints;
-
-    int iSendResult;
-    char recvbuf[DEFAULT_BUFLEN];
-    int recvbuflen = DEFAULT_BUFLEN;
+    struct addrinfo* addr = NULL;
 
     bool usingTLS = false;
     if (argc == 2 && strcmp(argv[1], "-t") == 0) {
@@ -40,9 +40,9 @@ int __cdecl main(int argc, char** argv)
     }
 
     // Initialize Winsock
-    iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
-    if (iResult != 0) {
-        printf("WSAStartup failed with error: %d\n", iResult);
+    result = WSAStartup(MAKEWORD(2, 2), &wsa_data);
+    if (result != 0) {
+        printf("WSAStartup failed with error: %d\n", result);
         return 1;
     }
 
@@ -53,100 +53,106 @@ int __cdecl main(int argc, char** argv)
     hints.ai_flags = AI_PASSIVE;
 
     // Resolve the server address and port
-    iResult = getaddrinfo(NULL, DEFAULT_PORT, &hints, &result);
-    if (iResult != 0) {
-        printf("getaddrinfo failed with error: %d\n", iResult);
+    result = getaddrinfo(NULL, DEFAULT_PORT, &hints, &addr);
+    if (result != 0) {
+        printf("getaddrinfo failed with error: %d\n", result);
         WSACleanup();
         return 1;
     }
 
     // Create a SOCKET for connecting to server
-    ListenSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-    if (ListenSocket == INVALID_SOCKET) {
+    listen_socket = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+    if (listen_socket == INVALID_SOCKET) {
         printf("socket failed with error: %ld\n", WSAGetLastError());
-        freeaddrinfo(result);
+        freeaddrinfo(addr);
         WSACleanup();
         return 1;
     }
 
     // Setup the TCP listening socket
-    iResult = bind(ListenSocket, result->ai_addr, (int)result->ai_addrlen);
-    if (iResult == SOCKET_ERROR) {
+    result = bind(listen_socket, addr->ai_addr, (int)addr->ai_addrlen);
+    if (result == SOCKET_ERROR) {
         printf("bind failed with error: %d\n", WSAGetLastError());
-        freeaddrinfo(result);
-        closesocket(ListenSocket);
+        freeaddrinfo(addr);
+        closesocket(listen_socket);
         WSACleanup();
         return 1;
     }
 
-    freeaddrinfo(result);
+    freeaddrinfo(addr);
 
-    iResult = listen(ListenSocket, SOMAXCONN);
-    if (iResult == SOCKET_ERROR) {
+    result = listen(listen_socket, SOMAXCONN);
+    if (result == SOCKET_ERROR) {
         printf("listen failed with error: %d\n", WSAGetLastError());
-        closesocket(ListenSocket);
+        closesocket(listen_socket);
         WSACleanup();
         return 1;
     }
 
     // Accept a client socket
-    ClientSocket = accept(ListenSocket, NULL, NULL);
-    if (ClientSocket == INVALID_SOCKET) {
+    accept_socket = accept(listen_socket, NULL, NULL);
+    if (accept_socket == INVALID_SOCKET) {
         printf("accept failed with error: %d\n", WSAGetLastError());
-        closesocket(ListenSocket);
+        closesocket(listen_socket);
         WSACleanup();
         return 1;
     }
 
     // No longer need server socket
-    closesocket(ListenSocket);
+    closesocket(listen_socket);
 
-    std::unique_ptr<My::ISocket> client = nullptr;
+    int buf_size = DEFAULT_BUFLEN;
+    std::vector<char> buf;
+    std::unique_ptr<My::ISocket> server = nullptr;
     if (usingTLS) {
-        printf("Enabling TLS...\n");
-        auto ss = new My::SecureSocket(ClientSocket, true, L"localhost");
+        My::Log::info("[main] Enabling TLS...");
+        auto ss = new My::SecureSocket(accept_socket, true, L"localhost");
         if (!ss->init()) {
-            printf("Init TLS failed!");
+            My::Log::error("[main] Init TLS failed!");
             delete ss;
-            closesocket(ClientSocket);
+            closesocket(accept_socket);
             WSACleanup();
             return 1;
         }
-        else {
-            printf("TLS is enabled!");
-        }
-        client = std::unique_ptr<My::ISocket>(ss);
+        My::Log::info("[main] TLS is enabled!");
+        server = std::unique_ptr<My::ISocket>(ss);
+        buf_size = server->max_message_size();
     }
     else {
-        printf("No TLS!\n");
-        client = std::unique_ptr<My::ISocket>(new My::Socket(ClientSocket));
+        My::Log::info("[main] No TLS!");
+        server = std::unique_ptr<My::ISocket>(new My::Socket(accept_socket));
     }
+    buf.resize(buf_size);
+
+    //Since we're going to ouput bianry to stdout.
+    _setmode(_fileno(stdout), _O_BINARY);
 
     // Receive until the peer shuts down the connection
     while (true) {
-        iResult = client->receive(recvbuf, recvbuflen);
-        if (iResult >= 0) {
-            printf("Bytes received: %d\n", iResult);
-            if (iResult > 0) {
-                // Echo the buffer back to the sender
-                iSendResult = client->send(recvbuf, iResult);
-                printf("Bytes sent: %d\n", iSendResult);
-                if (iSendResult != iResult) {
-                    break;
-                }
+        result = server->receive(buf.data(), buf.size());
+        if (result > 0) {
+            if (!std::cout.write(buf.data(), result)) {
+                My::Log::error("[main] failed writing to output file!");
+                break;
+            }
+            int sent = server->send(buf.data(), result);
+            if (sent != result) {
+                My::Log::error("[main] sent: ", sent, " expected: ", result);
+                break;
             }
         }
-        else {
-            printf("receive failed with error: %d\n", iResult);
+        else if (result < 0) {
+            My::Log::warn("[main] receive failed with error: ", result);
             break;
         }
     }
 
-    // shutdown the connection since we're done
-    client->shutdown();
+    My::Log::info("[main] Shutting down...");
+    std::cout.flush();
+    server->shutdown();
 
     // cleanup
-    closesocket(ClientSocket);
+    closesocket(accept_socket);
     WSACleanup();
 
     return 0;
