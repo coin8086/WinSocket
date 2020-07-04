@@ -52,9 +52,13 @@ bool My::SecureSocket::init()
 
 int My::SecureSocket::send(const char* buf, int length)
 {
+    if (length == 0) {
+        //Allow sending zero-size buf, do nothing.
+        return 0;
+    }
     //NOTE: Should we split a long buf(longer than m_size.cbMaximumMessage) into small pieces to send one by one?
     //TODO: cbMaximumMessage includes the header and trailer, which should be reduced before comparing with length.
-    if (!m_secured || !buf || length <= 0 || length > m_size.cbMaximumMessage) {
+    if (!m_secured || !buf || length < 0 || length > m_size.cbMaximumMessage) {
         return -1;
     }
     std::vector<char> send_buf(length + m_size.cbHeader + m_size.cbTrailer);
