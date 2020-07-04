@@ -22,6 +22,8 @@ namespace My {
 
         bool init();
 
+        virtual int max_message_size() override;
+
         virtual int send(const char* buf, int length) override;
 
         virtual int receive(char* buf, int length) override;
@@ -38,6 +40,10 @@ namespace My {
         bool create_server_cred();
 
         bool create_client_cred();
+
+        inline int max_payload() {
+            return m_size.cbMaximumMessage - m_size.cbHeader - m_size.cbTrailer;
+        }
 
         bool m_secured = false;
         bool m_server;

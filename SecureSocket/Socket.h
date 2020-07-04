@@ -13,6 +13,8 @@ namespace My {
 
         Socket & operator = (const Socket&) = delete;
 
+        virtual int max_message_size() override;
+
         virtual int send(const char* buf, int length) override;
 
         virtual int receive(char* buf, int length) override;

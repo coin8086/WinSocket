@@ -50,19 +50,30 @@ bool My::SecureSocket::init()
         create_client_cred() &&  negotiate_as_client();
 }
 
+int My::SecureSocket::max_message_size()
+{
+    return m_size.cbMaximumMessage;
+}
+
+//When buf is too big to be sent in one message, just send as much buf as possible in one message.
 int My::SecureSocket::send(const char* buf, int length)
 {
     if (length == 0) {
         //Allow sending zero-size buf, do nothing.
         return 0;
     }
-    //NOTE: Should we split a long buf(longer than m_size.cbMaximumMessage) into small pieces to send one by one?
-    //TODO: cbMaximumMessage includes the header and trailer, which should be reduced before comparing with length.
-    if (!m_secured || !buf || length < 0 || length > m_size.cbMaximumMessage) {
+
+    if (!m_secured || !buf || length < 0) {
         return -1;
     }
-    std::vector<char> send_buf(length + m_size.cbHeader + m_size.cbTrailer);
-    memcpy(send_buf.data() + m_size.cbHeader, buf, length);
+
+    int send_length = max_payload();
+    if (send_length > length) {
+        send_length = length;
+    }
+
+    std::vector<char> send_buf(send_length + m_size.cbHeader + m_size.cbTrailer);
+    memcpy(send_buf.data() + m_size.cbHeader, buf, send_length);
 
     SecBuffer out_buf[4];
     SecBufferDesc msg;
@@ -76,10 +87,10 @@ int My::SecureSocket::send(const char* buf, int length)
     out_buf[0].BufferType = SECBUFFER_STREAM_HEADER;
 
     out_buf[1].pvBuffer = send_buf.data() + m_size.cbHeader;
-    out_buf[1].cbBuffer = length;
+    out_buf[1].cbBuffer = send_length;
     out_buf[1].BufferType = SECBUFFER_DATA;
 
-    out_buf[2].pvBuffer = send_buf.data() + m_size.cbHeader + length;
+    out_buf[2].pvBuffer = send_buf.data() + m_size.cbHeader + send_length;
     out_buf[2].cbBuffer = m_size.cbTrailer;
     out_buf[2].BufferType = SECBUFFER_STREAM_TRAILER;
 
@@ -101,9 +112,11 @@ int My::SecureSocket::send(const char* buf, int length)
     else {
         Log::error("[SecureSocket::send] EncryptMessage failed with error: ", status);
     }
-    return length;
+    return send_length;
 }
 
+//The caller should call max_message_size first and ensure the buf is at least that big, otherwise receive may fail
+//due to short buf and lose the current and next messages.
 int My::SecureSocket::receive(char* buf, int length)
 {
     if (!m_secured || !buf || length <= 0) {
