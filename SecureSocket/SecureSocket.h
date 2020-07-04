@@ -56,6 +56,8 @@ namespace My {
         //(maybe a custom allocator?) to allocate memory without initializing it for vector::resize().
         std::vector<char> m_buf;
         static PSecurityFunctionTable sspi;
+        //NOTE: 16KiB is the max size of a TLS message, bigger buf may incur some performance loss 
+        //due to moving extra content in m_buf after one message is processed.
         static const int init_buf_size = 1024 * 16;
     };
 }
