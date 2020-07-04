@@ -101,7 +101,7 @@ int My::SecureSocket::send(const char* buf, int length)
     else {
         Log::error("[SecureSocket::send] EncryptMessage failed with error: ", status);
     }
-    return result;
+    return length;
 }
 
 int My::SecureSocket::receive(char* buf, int length)
