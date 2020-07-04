@@ -50,7 +50,7 @@ namespace My {
         //(maybe a custom allocator?) to allocate memory without initializing it for vector::resize().
         std::vector<char> m_buf;
         static PSecurityFunctionTable sspi;
-        static const int init_buf_size = 1024 * 32;
+        static const int init_buf_size = 1024 * 16;
     };
 }
 
