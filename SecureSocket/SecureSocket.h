@@ -52,8 +52,7 @@ namespace My {
         CredHandle m_cred{};
         CtxtHandle m_ctx{};
         SecPkgContext_StreamSizes m_size{};
-        //NOTE: Here a vector is used as a dynamic array. And it's better to have some way
-        //(maybe a custom allocator?) to allocate memory without initializing it for vector::resize().
+        //TODO: do not resize m_buf frequently.
         std::vector<char> m_buf;
         static PSecurityFunctionTable sspi;
         //NOTE: 16KiB is the max size of a TLS message, bigger buf may incur some performance loss 
