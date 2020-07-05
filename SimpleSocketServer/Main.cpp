@@ -34,9 +34,9 @@ int __cdecl main(int argc, char** argv)
     struct addrinfo hints;
     struct addrinfo* addr = NULL;
 
-    bool usingTLS = false;
+    bool using_tls = false;
     if (argc == 2 && strcmp(argv[1], "-t") == 0) {
-        usingTLS = true;
+        using_tls = true;
     }
 
     // Initialize Winsock
@@ -104,7 +104,7 @@ int __cdecl main(int argc, char** argv)
     int buf_size = DEFAULT_BUFLEN;
     std::vector<char> buf;
     std::unique_ptr<My::ISocket> server = nullptr;
-    if (usingTLS) {
+    if (using_tls) {
         My::Log::info("[main] Enabling TLS...");
         auto ss = new My::SecureSocket(accept_socket, true, L"localhost");
         if (!ss->init()) {
@@ -143,6 +143,10 @@ int __cdecl main(int argc, char** argv)
         }
         else if (result < 0) {
             My::Log::warn("[main] receive failed with error: ", result);
+            break;
+        }
+        else if (!using_tls) {
+            My::Log::info("[main] client is shuttig down.");
             break;
         }
     }

@@ -196,7 +196,12 @@ int My::SecureSocket::receive(char* buf, int length)
             }
             else {
                 //NOTE: It seems the data_buf->pvBuffer points to an address in our m_buf.
-                //Also note that data_buf->cbBuffer can be 0, according to the document.
+                //Also note that data_buf->cbBuffer can be 0, according to the document. HOWEVER, receiving zero-size buf
+                //is a sign of SHUTDOWN for plain socket recv call. And we'd better have ISocket::receive the same semantics
+                //no matter of its implementation.
+                if (data_buf->cbBuffer == 0) {
+                    Log::warn("[SecureSocket::receive] received zero-size message payload.");
+                }
                 memcpy(buf, data_buf->pvBuffer, data_buf->cbBuffer);
                 result = data_buf->cbBuffer;
 

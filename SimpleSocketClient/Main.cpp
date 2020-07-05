@@ -134,7 +134,7 @@ int __cdecl main(int argc, char** argv)
         buf_size = client->max_message_size();
     }
     else {
-        printf("No TLS!\n");
+        My::Log::info("[main] No TLS!");
         client = std::unique_ptr<My::ISocket>(new My::Socket(connect_socket));
     }
 
@@ -143,7 +143,7 @@ int __cdecl main(int argc, char** argv)
 
     const int file_size = get_file_size(std::cin);
     if (file_size <= 0) {
-        My::Log::error("Invalid std input!");
+        My::Log::error("[main] Invalid std input!");
         closesocket(connect_socket);
         WSACleanup();
         return 1;
@@ -154,18 +154,18 @@ int __cdecl main(int argc, char** argv)
     while (left > 0) {
         int read = left > FILE_BUFLEN ? FILE_BUFLEN : left;
         if (!std::cin.read(input, read)) {
-            My::Log::error("Bad read!");
+            My::Log::error("[main] Bad read!");
             break;
         }
         left -= read;
         if (!send_all(client.get(), input, read)) {
-            My::Log::error("Bad send!");
+            My::Log::error("[main] Bad send!");
             break;
         }
     }
 
     if (left > 0) {
-        My::Log::error("Send failed!");
+        My::Log::error("[main] Send failed!");
         closesocket(connect_socket);
         WSACleanup();
         return 1;
@@ -185,6 +185,10 @@ int __cdecl main(int argc, char** argv)
         }
         else if (result < 0) {
             My::Log::warn("[main] receive failed with error: ", result);
+            break;
+        }
+        else if (!using_tls) {
+            My::Log::info("[main] server is shuttig down.");
             break;
         }
     }
