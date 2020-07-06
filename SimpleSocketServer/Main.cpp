@@ -129,7 +129,7 @@ int __cdecl main(int argc, char** argv)
 
     // Receive until the peer shuts down the connection
     while (true) {
-        result = server->receive(buf.data(), buf.size());
+        result = server->receive(buf.data(), (int)buf.size());
         if (result > 0) {
             if (!std::cout.write(buf.data(), result)) {
                 My::Log::error("[main] failed writing to output file!");

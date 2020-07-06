@@ -133,11 +133,11 @@ int My::SecureSocket::receive(char* buf, int length)
 
     SECURITY_STATUS status = SEC_E_INCOMPLETE_MESSAGE;
 
-    int read = m_buf.size();
+    auto read = m_buf.size();
     if (read > 0) {
         //There are already some (extra) content received in buffer in previous call of receive, or from negotiation.
         in_buf[0].pvBuffer = m_buf.data();
-        in_buf[0].cbBuffer = read;
+        in_buf[0].cbBuffer = (unsigned long)read;
         in_buf[0].BufferType = SECBUFFER_DATA;
         in_buf[1].BufferType = SECBUFFER_EMPTY;
         in_buf[2].BufferType = SECBUFFER_EMPTY;
@@ -150,14 +150,14 @@ int My::SecureSocket::receive(char* buf, int length)
     while (status == SEC_E_INCOMPLETE_MESSAGE)
     {
         if (read == m_buf.size()) {
-            int to_size = m_buf.size() * 2;
+            std::size_t to_size = m_buf.size() * 2;
             if (to_size < init_buf_size) {
                 to_size = init_buf_size;
             }
             m_buf.resize(to_size);
         }
 
-        int received = Socket::receive(m_buf.data() + read, m_buf.size() - read);
+        int received = Socket::receive(m_buf.data() + read, (int)(m_buf.size() - read));
         if (received <= 0) {
             Log::error("[SecureSocket::receive] Socket::receive failed with: ", received);
             break;
@@ -165,7 +165,7 @@ int My::SecureSocket::receive(char* buf, int length)
         read += received;
 
         in_buf[0].pvBuffer = m_buf.data();
-        in_buf[0].cbBuffer = read;
+        in_buf[0].cbBuffer = (unsigned long)read;
         in_buf[0].BufferType = SECBUFFER_DATA;
         in_buf[1].BufferType = SECBUFFER_EMPTY;
         in_buf[2].BufferType = SECBUFFER_EMPTY;
@@ -190,7 +190,7 @@ int My::SecureSocket::receive(char* buf, int length)
 
         if (data_buf)
         {
-            if (data_buf->cbBuffer > length) {
+            if (data_buf->cbBuffer > (unsigned long)length) {
                 //NOTE: Is there a way to avoid/alleviate the short-buffer problem?
                 Log::error("[SecureSocket::receive] Input buffer is not big enough. At least ", data_buf->cbBuffer, " bytes is required.");
             }
@@ -354,7 +354,7 @@ bool My::SecureSocket::negotiate_as_server()
     while (true) {
         //Increase buffer when necessary
         if (read == m_buf.size()) {
-            int to_size = m_buf.size() * 2;
+            auto to_size = m_buf.size() * 2;
             if (to_size < init_buf_size) {
                 to_size = init_buf_size;
             }
@@ -362,7 +362,7 @@ bool My::SecureSocket::negotiate_as_server()
         }
 
         //Read in buffer
-        int received = Socket::receive(m_buf.data() + read, m_buf.size() - read);
+        int received = Socket::receive(m_buf.data() + read, (int)(m_buf.size() - read));
         if (received <= 0)
             break;
         read += received;
@@ -493,7 +493,7 @@ bool My::SecureSocket::negotiate_as_client()
     while (true) {
         //Increase buffer when necessary
         if (read == m_buf.size()) {
-            int to_size = m_buf.size() * 2;
+            auto to_size = m_buf.size() * 2;
             if (to_size < init_buf_size) {
                 to_size = init_buf_size;
             }
@@ -501,7 +501,7 @@ bool My::SecureSocket::negotiate_as_client()
         }
 
         //Read in buffer
-        int received = Socket::receive(m_buf.data() + read, m_buf.size() - read);
+        int received = Socket::receive(m_buf.data() + read, (int)(m_buf.size() - read));
         if (received <= 0)
             break;
         read += received;

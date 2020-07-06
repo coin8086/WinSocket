@@ -29,9 +29,9 @@
 int get_file_size(std::istream & is) {
     auto pos = is.tellg();
     is.seekg(0, is.end);
-    int size = is.tellg();
+    auto size = is.tellg();
     is.seekg(pos);
-    return size;
+    return (int)size;
 }
 
 bool send_all(My::ISocket * s, const char * buf, int size) {
