@@ -675,12 +675,16 @@ bool My::SecureSocket::send_client_hello()
     bool ok = false;
     if (status == SEC_I_CONTINUE_NEEDED && out_buf[0].cbBuffer > 0 && out_buf[0].pvBuffer)
     {
+        Log::info("[SecureSocket::send_client_hello] Sending ClientHello message...");
         int sent = Socket::send((char*)out_buf[0].pvBuffer, out_buf[0].cbBuffer);
         sspi->FreeContextBuffer(out_buf[0].pvBuffer);
         if (sent == out_buf[0].cbBuffer)
         {
             ok = true;
         }
+    }
+    else {
+        Log::error("[SecureSocket::send_client_hello] InitializeSecurityContextW failed with: ", status);
     }
     return ok;
 }
@@ -689,6 +693,8 @@ bool My::SecureSocket::create_server_cred()
 {
     m_cert = Certificate::get(m_server_name);
     if (!m_cert) {
+        //TODO: Log can output wstring.
+        Log::error("[SecureSocket::create_server_cred] Server certificate is not found!");
         return false;
     }
     SCHANNEL_CRED schannel_cred{};
@@ -719,6 +725,14 @@ bool My::SecureSocket::create_server_cred()
         &m_cred,
         &ts
     );
+    if (status != SEC_E_OK) {
+        if (status == SEC_E_UNKNOWN_CREDENTIALS) {
+            Log::error("[SecureSocket::create_server_cred] AcquireCredentialsHandle failed with SEC_E_UNKNOWN_CREDENTIALS. The server certificate is probabaly invalid!");
+        }
+        else {
+            Log::error("[SecureSocket::create_server_cred] AcquireCredentialsHandle failed with: ", status);
+        }
+    }
     return (status == SEC_E_OK);
 }
 
