@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <io.h>
 #include <fcntl.h>
+#include <string.h>
+#include <assert.h>
 #include <memory>
 #include <vector>
 
@@ -21,7 +23,6 @@
 #pragma comment (lib, "AdvApi32.lib")
 
 
-#define DEFAULT_BUFLEN 8192
 #define FILE_BUFLEN 20000
 #define DEFAULT_PORT "27015"
 
@@ -44,6 +45,20 @@ bool send_all(My::ISocket * s, const char * buf, int size) {
         size -= sent;
     }
     return size == 0;
+}
+
+bool read_all(My::ISocket * s, char * buf, int buf_size) {
+    int read = 0;
+    while (read < buf_size) {
+        //NOTE: here we know the buf_size - read must be OK because we're reading the buf
+        //we just sent out. Otherwise there may be a short-buf error!
+        auto result = s->receive(buf + read, buf_size - read);
+        if (result < 0) {
+            break;
+        }
+        read += result;
+    }
+    return read == buf_size;
 }
 
 int __cdecl main(int argc, char** argv)
@@ -116,8 +131,6 @@ int __cdecl main(int argc, char** argv)
         return 1;
     }
 
-    int buf_size = DEFAULT_BUFLEN;
-    std::vector<char> buf;
     std::unique_ptr<My::ISocket> client = nullptr;
     if (using_tls) {
         My::Log::info("[main] Enabling TLS...");
@@ -131,7 +144,6 @@ int __cdecl main(int argc, char** argv)
         }
         My::Log::info("[main] TLS is enabled!");
         client = std::unique_ptr<My::ISocket>(ss);
-        buf_size = client->max_message_size();
     }
     else {
         My::Log::info("[main] No TLS!");
@@ -150,6 +162,7 @@ int __cdecl main(int argc, char** argv)
     }
 
     char input[FILE_BUFLEN];
+    char server_input[FILE_BUFLEN];
     int left = file_size;
     while (left > 0) {
         int read = left > FILE_BUFLEN ? FILE_BUFLEN : left;
@@ -162,44 +175,19 @@ int __cdecl main(int argc, char** argv)
             My::Log::error("[main] Bad send!");
             break;
         }
-    }
-
-    if (left > 0) {
-        My::Log::error("[main] Send failed!");
-        closesocket(connect_socket);
-        WSACleanup();
-        return 1;
-    }
-
-    // Receive until the peer closes the connection
-    buf.resize(buf_size);
-    int received = 0;
-    while (received < file_size) {
-        result = client->receive(buf.data(), buf_size);
-        if (result > 0) {
-            received += result;
-            if (!std::cout.write(buf.data(), result)) {
-                My::Log::error("[main] failed writing to output file!");
-                break;
-            }
-        }
-        else if (result < 0) {
-            My::Log::warn("[main] receive failed with error: ", result);
+        if (!read_all(client.get(), server_input, read) || memcmp(input, server_input, read)) {
+            My::Log::error("[main] Bad echo back!");
             break;
         }
-        else if (!using_tls) {
-            My::Log::info("[main] server is shuttig down.");
+        if (!std::cout.write(server_input, read)) {
+            My::Log::error("[main] Bad write!");
             break;
         }
     }
 
-    My::Log::info("[main] Shutting down...");
-    std::cout.flush();
     client->shutdown();
-
-    // cleanup
     closesocket(connect_socket);
     WSACleanup();
 
-    return 0;
+    return left > 0 ? 1 : 0;
 }
