@@ -103,16 +103,16 @@ int My::SecureSocket::send(const char* buf, int length)
         int total = out_buf[0].cbBuffer + out_buf[1].cbBuffer + out_buf[2].cbBuffer;
         int sent = Socket::send(send_buf.data(), total);
         if (sent == total) {
-            result = sent;
+            result = send_length;
         }
         else {
-            Log::error("[SecureSocket::send] Sent an encrypted message of", sent, " bytes. Should be ", total);
+            Log::error("[SecureSocket::send] Socket::send failed with: ", sent, ". Total bytes to send: ", total);
         }
     }
     else {
         Log::error("[SecureSocket::send] EncryptMessage failed with error: ", status);
     }
-    return send_length;
+    return result;
 }
 
 //The caller should call max_message_size first and ensure the buf is at least that big, otherwise receive may fail
