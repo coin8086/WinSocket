@@ -25,6 +25,8 @@
 
 int __cdecl main(int argc, char** argv)
 {
+    //My::Log::level = My::Log::Level::Info;
+
     WSADATA wsa_data;
     int result;
 
@@ -132,7 +134,7 @@ int __cdecl main(int argc, char** argv)
         result = server->receive(buf.data(), (int)buf.size());
         if (result > 0) {
             if (!std::cout.write(buf.data(), result)) {
-                My::Log::error("[main] failed writing to output file!");
+                My::Log::error("[main] Failed writing to output file!");
                 break;
             }
             int sent = server->send(buf.data(), result);
@@ -142,11 +144,16 @@ int __cdecl main(int argc, char** argv)
             }
         }
         else if (result < 0) {
-            My::Log::warn("[main] receive failed with error: ", result);
+            if (result == -2) {
+                My::Log::info("[main] Client is shutting down.");
+            }
+            else {
+                My::Log::error("[main] receive failed with error: ", result);
+            }
             break;
         }
         else if (!using_tls) {
-            My::Log::info("[main] client is shuttig down.");
+            My::Log::info("[main] Client is shuttig down.");
             break;
         }
     }
