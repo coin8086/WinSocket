@@ -429,17 +429,14 @@ bool My::SecureSocket::negotiate_as_server()
 
         if (status == SEC_I_CONTINUE_NEEDED) {
             Log::info("[SecureSocket::negotiate_as_server] SEC_I_CONTINUE_NEEDED");
-            //NOTE: Though it's less possible to have extra content in buffer when SEC_I_CONTINUE_NEEDED, it's still coded as is.
             if (in_buf[1].BufferType == SECBUFFER_EXTRA) {
-                Log::info("[SecureSocket::negotiate_as_server] Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
-                //Process any extra content read in before continue
-                memmove(m_buf.data(), m_buf.data() + read - in_buf[1].cbBuffer, in_buf[1].cbBuffer);
-                read = in_buf[1].cbBuffer;
+                Log::error("[SecureSocket::negotiate_as_server] Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
+                break;
             }
             else {
                 read = 0;
+                continue;
             }
-            continue;
         }
 
         if (status == SEC_E_OK)
@@ -586,17 +583,14 @@ bool My::SecureSocket::negotiate_as_client()
 
         if (status == SEC_I_CONTINUE_NEEDED) {
             Log::info("[SecureSocket::negotiate_as_client] SEC_I_CONTINUE_NEEDED");
-            //NOTE: Though it's less possible to have extra content in buffer when SEC_I_CONTINUE_NEEDED, it's still coded as is.
             if (in_buf[1].BufferType == SECBUFFER_EXTRA) {
-                Log::info("[SecureSocket::negotiate_as_client] Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
-                //Process any extra content read in before continue
-                memmove(m_buf.data(), m_buf.data() + read - in_buf[1].cbBuffer, in_buf[1].cbBuffer);
-                read = in_buf[1].cbBuffer;
+                Log::error("[SecureSocket::negotiate_as_client] Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
+                break;
             }
             else {
                 read = 0;
+                continue;
             }
-            continue;
         }
 
         if (status == SEC_E_OK)
