@@ -63,6 +63,8 @@ bool read_all(My::ISocket * s, char * buf, int buf_size) {
 
 int __cdecl main(int argc, char** argv)
 {
+    My::Log::level = My::Log::Level::Info;
+
     WSADATA wsa_data;
     SOCKET connect_socket = INVALID_SOCKET;
     struct addrinfo* addr = NULL,

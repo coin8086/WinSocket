@@ -25,7 +25,7 @@
 
 int __cdecl main(int argc, char** argv)
 {
-    //My::Log::level = My::Log::Level::Info;
+    My::Log::level = My::Log::Level::Info;
 
     WSADATA wsa_data;
     int result;
