@@ -1,5 +1,7 @@
 # Run Test
 
+Before you run, you need a certificate for the server. The Subject Name of the certificate must be "localhost", and the certificate must be stored in the "My" store of the system's certificate store, in the "Local Machine". The certificate can be self issued but must not be expired.
+
 Start echo server and write what received to stdout, which is redirected to file `svr-output` since client may send binary data.
 
 ```
