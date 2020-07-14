@@ -1,8 +1,10 @@
 #include "Common.h"
 #include <ws2tcpip.h>
 #include <process.h>
-#include "..\SecureSocket\Log.h"
-#include "IoEvent.h"
+#include "Log.h"
+#include "ServerSocket.h"
+#include "EchoServer.h"
+#include "Event.h"
 
 #pragma comment (lib, "Ws2_32.lib")
 
@@ -21,7 +23,7 @@ SOCKET create_server_socket() {
 
     auto result = getaddrinfo(NULL, DEFAULT_PORT, &hints, &addr);
     if (result != 0) {
-        My::Log::error("getaddrinfo failed with error: ", result);
+        Log::error("getaddrinfo failed with error: ", result);
         return INVALID_SOCKET;
     }
 
@@ -29,7 +31,7 @@ SOCKET create_server_socket() {
     //auto listen_socket = WSASocket(addr->ai_family, addr->ai_socktype, addr->ai_protocol, nullptr, 0, WSA_FLAG_OVERLAPPED);
     auto listen_socket = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
     if (listen_socket == INVALID_SOCKET) {
-        My::Log::error("socket failed with error: ", WSAGetLastError());
+        Log::error("socket failed with error: ", WSAGetLastError());
         freeaddrinfo(addr);
         return INVALID_SOCKET;
     }
@@ -37,14 +39,14 @@ SOCKET create_server_socket() {
     result = bind(listen_socket, addr->ai_addr, (int)addr->ai_addrlen);
     freeaddrinfo(addr);
     if (result == SOCKET_ERROR) {
-        My::Log::error("bind failed with error: ", WSAGetLastError());
+        Log::error("bind failed with error: ", WSAGetLastError());
         closesocket(listen_socket);
         return INVALID_SOCKET;
     }
 
     result = listen(listen_socket, SOMAXCONN);
     if (result == SOCKET_ERROR) {
-        My::Log::error("listen failed with error: ", WSAGetLastError());
+        Log::error("listen failed with error: ", WSAGetLastError());
         closesocket(listen_socket);
         return INVALID_SOCKET;
     }
@@ -66,7 +68,7 @@ bool create_iocp_workers(HANDLE iocp) {
     for (size_t i = 0; i < g_worker_count; i++) {
         g_workers[i] = (HANDLE)_beginthreadex(nullptr, 0, iocp_worker, iocp, 0, nullptr);
         if (!g_workers[i]) {
-            My::Log::error("_beginthreadex failed with error: ", GetLastError());
+            Log::error("_beginthreadex failed with error: ", GetLastError());
             return false;
         }
     }
@@ -86,23 +88,26 @@ void stop_iocp_workers(HANDLE iocp) {
 bool g_exit = false;
 
 BOOL WINAPI CtrlHandler(DWORD event) {
-    My::Log::info("Terminating...");
+    Log::info("Terminating...");
     g_exit = true;
     Sleep(1000 * 5);
     return FALSE; //Let default handler terminate the process
 }
 
 int main(int argc, char ** argv) {
-    My::Log::level = My::Log::Level::Info;
+    if (!Log::init()) {
+        return 1;
+    }
+    Log::level = Log::Level::Info;
 
     if (!SetConsoleCtrlHandler(CtrlHandler, TRUE)) {
-        My::Log::error("SetConsoleCtrlHandler failed with error: ", GetLastError());
+        Log::error("SetConsoleCtrlHandler failed with error: ", GetLastError());
         return 1;
     }
 
     auto iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
     if (!iocp) {
-        My::Log::error("CreateIoCompletionPort failed with error: ", GetLastError());
+        Log::error("CreateIoCompletionPort failed with error: ", GetLastError());
         return 1;
     }
 
@@ -114,7 +119,7 @@ int main(int argc, char ** argv) {
     WSADATA wsa_data;
     int result = WSAStartup(MAKEWORD(2, 2), &wsa_data);
     if (result != 0) {
-        My::Log::error("WSAStartup failed with error: ", result);
+        Log::error("WSAStartup failed with error: ", result);
         stop_iocp_workers(iocp);
         CloseHandle(iocp);
         return 1;
@@ -131,7 +136,7 @@ int main(int argc, char ** argv) {
     u_long nonblock = 1;
     result = ioctlsocket(server_socket, FIONBIO, &nonblock);
     if (result == SOCKET_ERROR) {
-        My::Log::error("ioctlsocket failed with error: ", WSAGetLastError());
+        Log::error("ioctlsocket failed with error: ", WSAGetLastError());
         stop_iocp_workers(iocp);
         CloseHandle(iocp);
         closesocket(server_socket);
@@ -150,42 +155,26 @@ int main(int argc, char ** argv) {
         auto socket = accept(server_socket, nullptr, 0);
         if (socket == INVALID_SOCKET) {
             if (WSAEWOULDBLOCK != WSAGetLastError()) {
-                My::Log::error("accept failed with error: ", WSAGetLastError());
+                Log::error("accept failed with error: ", WSAGetLastError());
             }
             continue;
         }
 
-        My::Log::info("Accepted a connection.");
+        Log::info("Accepted a connection.");
 
-        auto result = CreateIoCompletionPort((HANDLE)socket, iocp, socket, 0);
-        if (!result) {
-            My::Log::error("CreateIoCompletionPort failed with error: ", GetLastError());
-            closesocket(socket);
-            continue;
-        }
-
-        //Initial recv...
-        auto event = new IoEvent(IoEvent::Type::Read);
-        WSABUF buf;
-        buf.buf = event->get_buf(BUF_SIZE).data();
-        buf.len = BUF_SIZE;
-        DWORD flags = 0;
-        auto recv_result = WSARecv(socket, &buf, 1, nullptr, &flags, (OVERLAPPED *)event, nullptr);
-        //TODO: What if recv_result is OK?
-        if (recv_result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
-            My::Log::error("WSARecv failed with error: ", WSAGetLastError());
-            //TODO: setsockopt SOL_SOCKET SO_LINGER for graceful shutdown/close?
-            closesocket(socket);
-            delete event;
+        //TODO: Some way to clean up handler and server in some exception cases, say iocp is closed.
+        auto handler = new EchoServer(BUF_SIZE);
+        auto server = ServerSocket::create(iocp, socket, handler);
+        if (!server->start()) {
+            delete server;
+            delete handler;
         }
     }
 
-    //TODO: Clean up the accepted sockets and event objects.
-
-    My::Log::info("Shutting down server socket...");
+    Log::info("Shutting down server socket...");
     shutdown(server_socket, SD_BOTH);
     closesocket(server_socket);
-    My::Log::info("Stopping IOCP workers...");
+    Log::info("Stopping IOCP workers...");
     stop_iocp_workers(iocp);
     CloseHandle(iocp);
     WSACleanup();
@@ -195,77 +184,25 @@ int main(int argc, char ** argv) {
 unsigned int __stdcall iocp_worker(void* arg) {
     HANDLE iocp = (HANDLE)arg;
     while (true) {
-        SOCKET socket;
         DWORD io_size;
-        IoEvent * event;
-        if (!GetQueuedCompletionStatus(iocp, &io_size, (PULONG_PTR)&socket, (LPOVERLAPPED *)&event, INFINITE)) {
-            My::Log::warn("GetQueuedCompletionStatus failed with error: ", GetLastError());
+        ServerSocket * socket;
+        LPOVERLAPPED overlapped;
+        if (!GetQueuedCompletionStatus(iocp, &io_size, (PULONG_PTR)&socket, &overlapped, INFINITE)) {
+            Log::warn("GetQueuedCompletionStatus failed with error: ", GetLastError());
             if (GetLastError() == ERROR_ABANDONED_WAIT_0) { //ERROR_ABANDONED_WAIT_0 means iocp has been closed.
-                //TODO: Then how to close socket and delete event?
                 break;
             }
         }
 
-        if (!socket && !event) {
-            My::Log::info("Worker is stopping...");
+        if (!socket && !overlapped) {
+            Log::info("Worker is stopping...");
             break;
         }
 
-        if (event->get_type() == IoEvent::Type::Read) {
-            if (io_size == 0) {
-                My::Log::info("A connection is closing...");
-                closesocket(socket);
-                delete event;
-                continue;
-            }
-
-            event->set_buf_received(io_size);
-            event->set_buf_sent(0);
-            event->set_type(IoEvent::Type::Write);
-            //event->reset_overlapped();
-            WSABUF buf;
-            buf.buf = event->get_buf().data();
-            buf.len = io_size;
-            auto send_result = WSASend(socket, &buf, 1, nullptr, 0, event, nullptr);
-            if (send_result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
-                My::Log::error("WSASend failed with error: ", WSAGetLastError());
-                //TODO: shutdown first?
-                closesocket(socket);
-                delete event;
-            }
-        }
-        else {
-            event->set_buf_sent(io_size + event->get_buf_sent());
-            if (event->get_buf_sent() < event->get_buf_received()) {
-                WSABUF buf;
-                buf.buf = event->get_buf().data() + event->get_buf_sent();
-                buf.len = event->get_buf_received() - event->get_buf_sent();
-                auto send_result = WSASend(socket, &buf, 1, nullptr, 0, event, nullptr);
-                if (send_result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
-                    My::Log::error("WSASend failed with error: ", WSAGetLastError());
-                    //TODO: shutdown first?
-                    closesocket(socket);
-                    delete event;
-                }
-            }
-            else {
-                event->set_type(IoEvent::Type::Read);
-                event->set_buf_received(0);
-                event->set_buf_sent(0);
-                //event->reset_overlapped();
-                WSABUF buf;
-                buf.buf = event->get_buf(BUF_SIZE).data();
-                buf.len = BUF_SIZE;
-                DWORD flags = 0;
-                auto recv_result = WSARecv(socket, &buf, 1, nullptr, &flags, event, 0);
-                if (recv_result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
-                    My::Log::error("WSARecv failed with error: ", WSAGetLastError());
-                    //TODO: setsockopt SOL_SOCKET SO_LINGER ?
-                    closesocket(socket);
-                    delete event;
-                }
-            }
-        }
+        //NOTE: Here compiler knows how to adjust pointer to overlapped for pointer to Event, while
+        //it doesn't know if &event was passed to GetQueuedCompletionStatus as (LPOVERLAPPED *).
+        Event* event = (Event *)overlapped;
+        event->run();
     }
     return 1; //Success, while 0 indicates an error
 }

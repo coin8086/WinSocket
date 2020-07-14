@@ -139,17 +139,18 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="IoEvent.cpp" />
+    <ClCompile Include="EchoServer.cpp" />
+    <ClCompile Include="Event.cpp" />
+    <ClCompile Include="Log.cpp" />
     <ClCompile Include="Main.cpp" />
+    <ClCompile Include="ServerSocket.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Common.h" />
-    <ClInclude Include="IoEvent.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\SecureSocket\SecureSocket.vcxproj">
-      <Project>{774e5e53-5d51-4a4e-af6b-e265c19f21b7}</Project>
-    </ProjectReference>
+    <ClInclude Include="EchoServer.h" />
+    <ClInclude Include="Event.h" />
+    <ClInclude Include="Log.h" />
+    <ClInclude Include="ServerSocket.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
