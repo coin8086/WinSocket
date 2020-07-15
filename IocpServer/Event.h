@@ -74,3 +74,20 @@ public:
 protected:
     HandshakeSendEvent(ServerSocket* s, const char* buf, size_t size) : SendEvent(s, buf, size) {}
 };
+
+class TlsSendEvent : public SendEvent
+{
+    friend class ServerSocket;
+
+public:
+    virtual void run() override {
+        m_server->do_send_event(this);
+    }
+
+protected:
+    TlsSendEvent(ServerSocket* s, const char* buf, size_t size, size_t send_size, size_t encrypted_send_size) :
+        SendEvent(s, buf, size), m_send_size(send_size), m_encrypted_send_size(encrypted_send_size) {}
+
+    size_t m_send_size;
+    size_t m_encrypted_send_size;
+};

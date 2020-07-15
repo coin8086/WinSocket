@@ -32,6 +32,7 @@ class ReceiveEvent;
 class SendEvent;
 class HandshakeReceiveEvent;
 class HandshakeSendEvent;
+class TlsSendEvent;
 
 class ServerSocket
 {
@@ -39,6 +40,7 @@ class ServerSocket
     friend class SendEvent;
     friend class HandshakeReceiveEvent;
     friend class HandshakeSendEvent;
+    friend class TlsSendEvent;
 
 public:
     enum class State {
@@ -80,11 +82,13 @@ private:
 
     void tls_do_receive(char* buf, size_t size, size_t received);
 
-    //bool start_send(const char* buf, size_t size);
+    bool start_send(const char* buf, size_t size);
 
-    //bool tls_start_send(const char* buf, size_t size);
+    bool tls_start_send(const char* buf, size_t size);
 
     void do_send_event(SendEvent* event);
+
+    void tls_do_send(TlsSendEvent* event, size_t sent);
 
     bool tls_start();
 
@@ -128,11 +132,14 @@ private:
     CredHandle m_cred{};    //NOTE: the cred can be saved and reused for other sockets.
     CtxtHandle m_ctx{};
     SecPkgContext_StreamSizes m_size{};
-    //TODO: do not resize m_buf frequently.
+
     std::vector<char> m_buf;
     size_t m_buf_used = 0;
-    //std::vector<char> m_send_buf;
-    //size_t m_send_buf_used = 0;
+    long m_tls_receiving = 0;
+
+    std::vector<char> m_send_buf;
+    long m_tls_sending = 0;
+
     static PSecurityFunctionTable sspi;
     //NOTE: 16KiB is the max size of a TLS message, bigger buf may incur some performance loss 
     //due to moving extra content in m_buf after one message is processed.

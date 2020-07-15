@@ -43,7 +43,7 @@ bool ServerSocket::start()
 
 bool ServerSocket::start_at_once() 
 {
-    assert(m_state != State::Init);
+    assert(m_state == State::Init);
     m_state = State::Started;
     m_handler->on_started(this);
     return true;
@@ -92,12 +92,16 @@ bool ServerSocket::start_receive(char* buf, size_t size)
 
 bool ServerSocket::tls_start_receive(char* user_buf, size_t user_buf_size, bool force_start)
 {
-    assert(0);
     assert(m_state == State::Started && user_buf && user_buf_size);
     if (!force_start && m_buf_used > 0) {
         tls_do_receive(user_buf, user_buf_size, 0);
         //Error will be handled by user handler if any. Returning true mimics starting an async sending without error.
         return true;
+    }
+    if (InterlockedCompareExchange(&m_tls_receiving, 1, 0)) {
+        assert(0 && "Concurrent receiving is not supported.");
+        m_handler->on_error(this);
+        return false;
     }
     //We don't use user buf for receiving TLS message. But we save it in a ReceiveEvent for later use.
     resize_buf_when_necessary();
@@ -109,6 +113,7 @@ bool ServerSocket::tls_start_receive(char* user_buf, size_t user_buf_size, bool 
     auto result = WSARecv(m_socket, &wsabuf, 1, nullptr, &flags, event, nullptr);
     if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
         Log::error("[ServerSocket::start_receive] WSARecv failed with error: ", WSAGetLastError());
+        InterlockedExchange(&m_tls_receiving, 0);
         delete event;
         return false;
     }
@@ -128,7 +133,6 @@ void ServerSocket::do_receive_event(ReceiveEvent* event)
         Log::info("[ServerSocket::do_receive_event] Client is shutting down.");
         delete event;
         shutdown();
-        delete this;
         return;
     }
     if (m_tls_enabled) {
@@ -142,7 +146,8 @@ void ServerSocket::do_receive_event(ReceiveEvent* event)
 
 void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t received)
 {
-    assert(0);
+    InterlockedExchange(&m_tls_receiving, 0);
+
     assert(m_state == State::Started);
 
     m_buf_used += received;
@@ -167,7 +172,7 @@ void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t r
         in_buf[3].BufferType = SECBUFFER_EMPTY;
 
         status = sspi->DecryptMessage(&m_ctx, &msg, 0, nullptr);
-        Log::info(" DecryptMessage: ", status);
+        Log::verbose("[ServerSocket::tls_do_receive] DecryptMessage: ", status);
     }
 
     if (status == SEC_E_INCOMPLETE_MESSAGE) {
@@ -178,21 +183,21 @@ void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t r
     }
 
     if (status == SEC_I_CONTEXT_EXPIRED) {
-        Log::info(" SEC_I_CONTEXT_EXPIRED is received!");
+        Log::info("[ServerSocket::tls_do_receive] SEC_I_CONTEXT_EXPIRED is received!");
         //TLS is shutting down.
         tls_shutdown();
         return;
     }
 
     if (status == SEC_I_RENEGOTIATE) {
-        Log::info(" SEC_I_RENEGOTIATE is received!");
+        Log::info("[ServerSocket::tls_do_receive] SEC_I_RENEGOTIATE is received!");
         //NOTE: Renegotiation is not supported. We shutdown the session in this case.
         tls_shutdown();
         return;
     }
 
     if (status != SEC_E_OK) {
-        Log::error(" DecryptMessage failed with error: ", status);
+        Log::error("[ServerSocket::tls_do_receive] DecryptMessage failed with error: ", status);
         m_handler->on_error(this);
         return;
     }
@@ -216,7 +221,7 @@ void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t r
 
     if (data_buf->cbBuffer > user_buf_size) {
         //NOTE: Is there a way to avoid/alleviate the short-buffer problem?
-        Log::error(" Input buffer is not big enough. At least ", data_buf->cbBuffer, " bytes is required.");
+        Log::error("[ServerSocket::tls_do_receive] Input buffer is not big enough. At least ", data_buf->cbBuffer, " bytes is required.");
         m_handler->on_error(this);
         return;
     }
@@ -226,7 +231,7 @@ void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t r
     //is a sign of SHUTDOWN for plain socket recv call. And we'd better have the same semantics for higher level
     //user no matter TLS is on or off.
     if (data_buf->cbBuffer == 0) {
-        Log::warn(" received zero-size message payload.");
+        Log::warn("[ServerSocket::tls_do_receive] received zero-size message payload.");
     }
     memcpy(user_buf, data_buf->pvBuffer, data_buf->cbBuffer);
     size_t result = data_buf->cbBuffer;
@@ -243,7 +248,7 @@ void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t r
     }
     if (extra_buf)
     {
-        Log::info(" Extra content of ", extra_buf->cbBuffer, " bytes is detected.");
+        Log::info("[ServerSocket::tls_do_receive] Extra content of ", extra_buf->cbBuffer, " bytes is detected.");
         //NOTE: Here memmove is used, rather than memcpy, because there may be overlap in src and dst.
         assert(extra_buf->pvBuffer == m_buf.data() + m_buf_used - extra_buf->cbBuffer);
         memmove(m_buf.data(), extra_buf->pvBuffer, extra_buf->cbBuffer);
@@ -264,18 +269,83 @@ bool ServerSocket::send(const char* buf, size_t size)
         Log::error("[ServerSocket::send] Invalid state.");
         return false;
     }
-    if (m_tls_enabled) {
-        //Encrypt buf and send the encrypted buf. May need to save unencrypted buf address and size for later use.
-        assert(0);
-        //tls_send
-    }
+    return m_tls_enabled ? tls_start_send(buf, size) : start_send(buf, size);
+}
+
+bool ServerSocket::start_send(const char* buf, size_t size)
+{
+    assert(m_state == State::Started);
     auto event = new SendEvent(this, buf, size);
     WSABUF wsabuf;
-    wsabuf.buf = (char *)buf;
+    wsabuf.buf = (char*)buf;
     wsabuf.len = size;
     auto result = WSASend(m_socket, &wsabuf, 1, nullptr, 0, event, nullptr);
     if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
         Log::error("[ServerSocket::send] WSASend failed with error: ", WSAGetLastError());
+        delete event;
+        return false;
+    }
+    return true;
+}
+
+bool ServerSocket::tls_start_send(const char* buf, size_t size)
+{
+    assert(m_state == State::Started);
+
+    size_t send_size = max_payload();
+    if (send_size > size) {
+        send_size = size;
+    }
+    size_t ensure_size = send_size + m_size.cbHeader + m_size.cbTrailer;
+    if (ensure_size < init_buf_size) {
+        ensure_size = init_buf_size;
+    }
+    m_send_buf.resize(ensure_size);
+    memcpy(m_send_buf.data() + m_size.cbHeader, buf, send_size);
+
+    SecBuffer out_buf[4];
+    SecBufferDesc msg;
+
+    msg.ulVersion = SECBUFFER_VERSION;
+    msg.cBuffers = 4;
+    msg.pBuffers = out_buf;
+
+    out_buf[0].pvBuffer = m_send_buf.data();
+    out_buf[0].cbBuffer = m_size.cbHeader;
+    out_buf[0].BufferType = SECBUFFER_STREAM_HEADER;
+
+    out_buf[1].pvBuffer = m_send_buf.data() + m_size.cbHeader;
+    out_buf[1].cbBuffer = send_size;
+    out_buf[1].BufferType = SECBUFFER_DATA;
+
+    out_buf[2].pvBuffer = m_send_buf.data() + m_size.cbHeader + send_size;
+    out_buf[2].cbBuffer = m_size.cbTrailer;
+    out_buf[2].BufferType = SECBUFFER_STREAM_TRAILER;
+
+    out_buf[3].BufferType = SECBUFFER_EMPTY;
+
+    auto status = sspi->EncryptMessage(&m_ctx, 0, &msg, 0);
+    if (FAILED(status)) {
+        Log::error("[ServerSocket::tls_start_send] EncryptMessage failed with error: ", status);
+        //m_send_buf.clear();
+        return false;
+    }
+
+    if (InterlockedCompareExchange(&m_tls_sending, 1, 0)) {
+        assert(0 && "Concurrent sending is not supported.");
+        m_handler->on_error(this);
+        return false;
+    }
+
+    size_t total = out_buf[0].cbBuffer + out_buf[1].cbBuffer + out_buf[2].cbBuffer;
+    auto event = new TlsSendEvent(this, buf, size, send_size, total);
+    WSABUF wsabuf;
+    wsabuf.buf = m_send_buf.data();
+    wsabuf.len = total;
+    auto result = WSASend(m_socket, &wsabuf, 1, nullptr, 0, event, nullptr);
+    if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
+        Log::error("[ServerSocket::tls_start_send] WSASend failed with error: ", WSAGetLastError());
+        InterlockedExchange(&m_tls_sending, 0);
         delete event;
         return false;
     }
@@ -292,11 +362,23 @@ void ServerSocket::do_send_event(SendEvent* event)
         return;
     }
     if (m_tls_enabled) {
-        //Translate buf and io_size to undecrypted ones. May need to change event to hold these info.
-        assert(0);
+        tls_do_send((TlsSendEvent*)event, io_size);
     }
-    m_handler->on_sent(this, event->m_buf, event->m_size, io_size);
+    else {
+        m_handler->on_sent(this, event->m_buf, event->m_size, io_size);
+    }
     delete event;
+}
+
+void ServerSocket::tls_do_send(TlsSendEvent* event, size_t sent)
+{
+    InterlockedExchange(&m_tls_sending, 0);
+    if (sent == event->m_encrypted_send_size) {
+        m_handler->on_sent(this, event->m_buf, event->m_size, event->m_send_size);
+    }
+    else {
+        m_handler->on_error(this);
+    }
 }
 
 bool ServerSocket::tls_start()
@@ -493,8 +575,8 @@ void ServerSocket::do_handshake_send_event(HandshakeSendEvent* event)
 
 void ServerSocket::tls_shutdown()
 {
-    assert(m_state == State::Started);
-    assert(0);
+    //TODO: Graceful shutdown by sending shutdown message...
+    shutdown_at_once();
 }
 
 bool ServerSocket::create_server_cred()
