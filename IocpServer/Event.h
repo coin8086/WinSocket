@@ -32,7 +32,7 @@ public:
         m_server->do_receive_event(this);
     }
 
-private:
+protected:
     ReceiveEvent(ServerSocket* s, char* buf, size_t size) : IoEvent(s, buf, size) {}
 };
 
@@ -45,6 +45,32 @@ public:
         m_server->do_send_event(this);
     }
 
-private:
+protected:
     SendEvent(ServerSocket* s, const char* buf, size_t size) : IoEvent(s, (char *)buf, size) {}
+};
+
+class HandshakeReceiveEvent : public ReceiveEvent
+{
+    friend class ServerSocket;
+
+public:
+    virtual void run() override {
+        m_server->do_handshake_receive_event(this);
+    }
+
+protected:
+    HandshakeReceiveEvent(ServerSocket* s, char* buf, size_t size) : ReceiveEvent(s, buf, size) {}
+};
+
+class HandshakeSendEvent : public SendEvent
+{
+    friend class ServerSocket;
+
+public:
+    virtual void run() override {
+        m_server->do_handshake_send_event(this);
+    }
+
+protected:
+    HandshakeSendEvent(ServerSocket* s, const char* buf, size_t size) : SendEvent(s, buf, size) {}
 };

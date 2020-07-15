@@ -20,6 +20,8 @@ public:
 
     virtual void on_sent(ServerSocket* socket, const char* buf, size_t size, size_t sent) override;
 
+    virtual void on_error(ServerSocket* socket) override;
+
 private:
     std::vector<char> m_buf;
 };

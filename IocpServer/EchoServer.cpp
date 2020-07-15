@@ -47,3 +47,10 @@ void EchoServer::on_sent(ServerSocket* socket, const char* buf, size_t size, siz
         }
     }
 }
+
+void EchoServer::on_error(ServerSocket* socket)
+{
+    Log::error("[EchoServer::on_error] ServerSocket error in state: ", (int)socket->get_state());
+    socket->shutdown();
+    delete socket;
+}

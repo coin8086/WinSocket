@@ -100,6 +100,11 @@ int main(int argc, char ** argv) {
     }
     Log::level = Log::Level::Info;
 
+    bool using_tls = false;
+    if (argc == 2 && strcmp(argv[1], "-t") == 0) {
+        using_tls = true;
+    }
+
     if (!SetConsoleCtrlHandler(CtrlHandler, TRUE)) {
         Log::error("SetConsoleCtrlHandler failed with error: ", GetLastError());
         return 1;
@@ -164,7 +169,7 @@ int main(int argc, char ** argv) {
 
         //TODO: Some way to clean up handler and server in some exception cases, say iocp is closed.
         auto handler = new EchoServer(BUF_SIZE);
-        auto server = ServerSocket::create(iocp, socket, handler);
+        auto server = ServerSocket::create(iocp, socket, handler, using_tls ? L"localhost" : nullptr);
         if (!server->start()) {
             delete server;
             delete handler;
