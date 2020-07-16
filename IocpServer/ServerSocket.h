@@ -50,7 +50,7 @@ public:
         Shutdown
     };
 
-    static ServerSocket* create(HANDLE iocp, SOCKET socket, IServerSocketHandler * handler, const wchar_t * server_name = nullptr);
+    static ServerSocket* create(HANDLE iocp, SOCKET socket, IServerSocketHandler * handler, bool enable_tls);
 
     ~ServerSocket();
 
@@ -66,9 +66,11 @@ public:
         return m_state;
     }
 
+    static bool tls_init(const wchar_t * server_name = L"localhost");
+
 private:
-    ServerSocket(HANDLE iocp, SOCKET socket, IServerSocketHandler* handler, const wchar_t * server_name) : 
-        m_iocp(iocp), m_socket(socket), m_handler(handler), m_server_name(server_name), m_tls_enabled(server_name) {}
+    ServerSocket(HANDLE iocp, SOCKET socket, IServerSocketHandler* handler, bool enable_tls) : 
+        m_iocp(iocp), m_socket(socket), m_handler(handler), m_tls_enabled(enable_tls) {}
 
     bool start_at_once();
 
@@ -91,8 +93,6 @@ private:
     void tls_do_send(TlsSendEvent* event, size_t sent);
 
     bool tls_start();
-
-    bool tls_init();
 
     bool tls_start_handshake_receive();
 
@@ -118,7 +118,7 @@ private:
         }
     }
 
-    bool create_server_cred();
+    static bool create_server_cred(const wchar_t* server_name);
 
     HANDLE m_iocp;
     SOCKET m_socket;
@@ -127,9 +127,6 @@ private:
 
     //The following fields are for TLS
     bool m_tls_enabled;
-    const wchar_t* m_server_name;
-    PCCERT_CONTEXT m_cert{};
-    CredHandle m_cred{};    //NOTE: the cred can be saved and reused for other sockets.
     CtxtHandle m_ctx{};
     SecPkgContext_StreamSizes m_size{};
 
@@ -140,7 +137,9 @@ private:
     std::vector<char> m_send_buf;
     long m_tls_sending = 0;
 
+    static bool tls_inited;
     static PSecurityFunctionTable sspi;
+    static CredHandle tls_cred;
     //NOTE: 16KiB is the max size of a TLS message, bigger buf may incur some performance loss 
     //due to moving extra content in m_buf after one message is processed.
     static const int init_buf_size = 1024 * 16;

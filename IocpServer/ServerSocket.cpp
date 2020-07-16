@@ -9,12 +9,14 @@ using My::Certificate;
 
 #pragma comment(lib, "Secur32.lib")
 
+bool ServerSocket::tls_inited = false;
 PSecurityFunctionTable ServerSocket::sspi = nullptr;
+CredHandle ServerSocket::tls_cred = {};
 
-ServerSocket* ServerSocket::create(HANDLE iocp, SOCKET socket, IServerSocketHandler* handler, const wchar_t* server_name)
+ServerSocket* ServerSocket::create(HANDLE iocp, SOCKET socket, IServerSocketHandler* handler, bool enable_tls)
 {
-    assert(iocp && socket && handler);
-    auto obj = new ServerSocket(iocp, socket, handler, server_name);
+    assert(iocp && socket && handler && (!enable_tls || (enable_tls && tls_inited)));
+    auto obj = new ServerSocket(iocp, socket, handler, enable_tls);
     auto result = CreateIoCompletionPort((HANDLE)socket, iocp, (ULONG_PTR)obj, 0);
     if (!result) {
         LOG_ERROR("CreateIoCompletionPort failed with error: ", GetLastError());
@@ -383,28 +385,13 @@ void ServerSocket::tls_do_send(TlsSendEvent* event, size_t sent)
 
 bool ServerSocket::tls_start()
 {
-    assert(m_state == State::Init);
-    if (!tls_init()) {
-        return false;
-    }
+    assert(m_state == State::Init && tls_inited);
     m_buf_used = 0;
     if (!tls_start_handshake_receive()) {
         return false;
     }
     m_state = State::HandShake;
     return true;
-}
-
-bool ServerSocket::tls_init()
-{
-    if (!sspi) {
-        sspi = InitSecurityInterface();
-        if (!sspi) {
-            LOG_ERROR("InitSecurityInterface failed.");
-            return false;
-        }
-    }
-    return create_server_cred();
 }
 
 //Start a handshake receive with internal m_buf starting at (m_buf.data() + m_buf_used).
@@ -487,7 +474,7 @@ void ServerSocket::do_handshake_receive_event(HandshakeReceiveEvent* event)
     out_buf_desc.ulVersion = SECBUFFER_VERSION;
 
     auto status = sspi->AcceptSecurityContext(
-        &m_cred,
+        &tls_cred,
         m_ctx.dwLower != 0 || m_ctx.dwUpper != 0 ? &m_ctx : nullptr,
         &in_buf_desc,
         req_context_flags,
@@ -581,10 +568,23 @@ void ServerSocket::tls_shutdown()
     shutdown_at_once();
 }
 
-bool ServerSocket::create_server_cred()
+bool ServerSocket::tls_init(const wchar_t * server_name)
 {
-    m_cert = Certificate::get(m_server_name);
-    if (!m_cert) {
+    if (!sspi) {
+        sspi = InitSecurityInterface();
+        if (!sspi) {
+            LOG_ERROR("InitSecurityInterface failed.");
+            return false;
+        }
+    }
+    tls_inited = create_server_cred(server_name);
+    return tls_inited;
+}
+
+bool ServerSocket::create_server_cred(const wchar_t* server_name)
+{
+    auto tls_cert = Certificate::get(server_name);
+    if (!tls_cert) {
         //TODO: Log can output wstring.
         LOG_ERROR("Server certificate is not found!");
         return false;
@@ -593,7 +593,7 @@ bool ServerSocket::create_server_cred()
     TimeStamp ts;
     schannel_cred.dwVersion = SCHANNEL_CRED_VERSION;
     schannel_cred.cCreds = 1;
-    schannel_cred.paCred = &m_cert;
+    schannel_cred.paCred = &tls_cert;
     //NOTE: by https://docs.microsoft.com/en-us/windows/win32/api/schannel/ns-schannel-schannel_cred
     //"
     //If this member is zero, Schannel selects the protocol. For new development, applications should
@@ -614,9 +614,10 @@ bool ServerSocket::create_server_cred()
         &schannel_cred,
         nullptr,
         nullptr,
-        &m_cred,
+        &tls_cred,
         &ts
     );
+    Certificate::free(tls_cert);
     if (status != SEC_E_OK) {
         if (status == SEC_E_UNKNOWN_CREDENTIALS) {
             LOG_ERROR("AcquireCredentialsHandle failed with SEC_E_UNKNOWN_CREDENTIALS. The server certificate is probabaly invalid!");
