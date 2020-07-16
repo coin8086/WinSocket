@@ -12,7 +12,7 @@ class ServerSocket;
 
 //NOTE: For a callback on_xxx, the ServerSocket may be deleted from inside it. ServerSocket
 //should hanlde such case properly.
-class ISocketHandler
+class IServerSocketHandler
 {
 public:
     virtual void on_started(ServerSocket* socket) = 0;
@@ -25,7 +25,7 @@ public:
 
     virtual void on_error(ServerSocket* socket) = 0;
 
-    virtual ~ISocketHandler() {}
+    virtual ~IServerSocketHandler() {}
 };
 
 class ReceiveEvent;
@@ -50,7 +50,7 @@ public:
         Shutdown
     };
 
-    static ServerSocket* create(HANDLE iocp, SOCKET socket, ISocketHandler * handler, const wchar_t * server_name = nullptr);
+    static ServerSocket* create(HANDLE iocp, SOCKET socket, IServerSocketHandler * handler, const wchar_t * server_name = nullptr);
 
     ~ServerSocket();
 
@@ -67,7 +67,7 @@ public:
     }
 
 private:
-    ServerSocket(HANDLE iocp, SOCKET socket, ISocketHandler* handler, const wchar_t * server_name) : 
+    ServerSocket(HANDLE iocp, SOCKET socket, IServerSocketHandler* handler, const wchar_t * server_name) : 
         m_iocp(iocp), m_socket(socket), m_handler(handler), m_server_name(server_name), m_tls_enabled(server_name) {}
 
     bool start_at_once();
@@ -122,7 +122,7 @@ private:
 
     HANDLE m_iocp;
     SOCKET m_socket;
-    ISocketHandler* m_handler;
+    IServerSocketHandler* m_handler;
     State m_state = State::Init;
 
     //The following fields are for TLS

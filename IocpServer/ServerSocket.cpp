@@ -11,7 +11,7 @@ using My::Certificate;
 
 PSecurityFunctionTable ServerSocket::sspi = nullptr;
 
-ServerSocket* ServerSocket::create(HANDLE iocp, SOCKET socket, ISocketHandler* handler, const wchar_t* server_name)
+ServerSocket* ServerSocket::create(HANDLE iocp, SOCKET socket, IServerSocketHandler* handler, const wchar_t* server_name)
 {
     assert(iocp && socket && handler);
     auto obj = new ServerSocket(iocp, socket, handler, server_name);

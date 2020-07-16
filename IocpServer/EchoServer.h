@@ -3,7 +3,7 @@
 #include "ServerSocket.h"
 #include <vector>
 
-class EchoServer : public ISocketHandler
+class EchoServer : public IServerSocketHandler
 {
 public:
     EchoServer(size_t buf_size) {
