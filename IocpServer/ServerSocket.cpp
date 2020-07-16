@@ -100,7 +100,6 @@ bool ServerSocket::tls_start_receive(char* user_buf, size_t user_buf_size, bool 
     }
     if (InterlockedCompareExchange(&m_tls_receiving, 1, 0)) {
         assert(0 && "Concurrent receiving is not supported.");
-        m_handler->on_error(this);
         return false;
     }
     //We don't use user buf for receiving TLS message. But we save it in a ReceiveEvent for later use.
@@ -214,7 +213,6 @@ void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t r
 
     if (!data_buf)
     {
-        //NOTE: Should call on_receive with 0 received size or on_error?
         m_handler->on_error(this);
         return;
     }
@@ -333,7 +331,6 @@ bool ServerSocket::tls_start_send(const char* buf, size_t size)
 
     if (InterlockedCompareExchange(&m_tls_sending, 1, 0)) {
         assert(0 && "Concurrent sending is not supported.");
-        m_handler->on_error(this);
         return false;
     }
 

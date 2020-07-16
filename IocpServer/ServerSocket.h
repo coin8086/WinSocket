@@ -23,7 +23,7 @@ public:
 
     virtual void on_sent(ServerSocket* socket, const char* buf, size_t size, size_t sent) = 0;
 
-    virtual void on_error(ServerSocket* socket) = 0;    //It's for error in handshake now, and may include other errors in the future.
+    virtual void on_error(ServerSocket* socket) = 0;
 
     virtual ~ISocketHandler() {}
 };
