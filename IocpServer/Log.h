@@ -3,6 +3,11 @@
 #include "Common.h"
 #include <iostream>
 
+#define LOG_ERROR(...) Log::error("[", __FUNCTION__ , "] ", __VA_ARGS__)
+#define LOG_WARN(...) Log::warn("[", __FUNCTION__ , "] ", __VA_ARGS__)
+#define LOG_INFO(...) Log::info("[", __FUNCTION__ , "] ", __VA_ARGS__)
+#define LOG_VERBOSE(...) Log::verbose("[", __FUNCTION__ , "] ", __VA_ARGS__)
+
 class Log
 {
 private:

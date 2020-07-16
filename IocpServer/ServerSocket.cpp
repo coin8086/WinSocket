@@ -17,7 +17,7 @@ ServerSocket* ServerSocket::create(HANDLE iocp, SOCKET socket, IServerSocketHand
     auto obj = new ServerSocket(iocp, socket, handler, server_name);
     auto result = CreateIoCompletionPort((HANDLE)socket, iocp, (ULONG_PTR)obj, 0);
     if (!result) {
-        Log::error("[ServerSocket::create] CreateIoCompletionPort failed with error: ", GetLastError());
+        LOG_ERROR("CreateIoCompletionPort failed with error: ", GetLastError());
         obj->m_handler = nullptr; //Do not delete handler then.
         delete obj;
         return nullptr;
@@ -27,7 +27,7 @@ ServerSocket* ServerSocket::create(HANDLE iocp, SOCKET socket, IServerSocketHand
 
 ServerSocket::~ServerSocket()
 {
-    Log::info("[ServerSocket::~ServerSocket]");
+    LOG_INFO("");
     shutdown();
     delete m_handler;
 }
@@ -35,13 +35,13 @@ ServerSocket::~ServerSocket()
 bool ServerSocket::start()
 {
     if (m_state != State::Init) {
-        Log::error("[ServerSocket::start] Invalid state.");
+        LOG_ERROR("Invalid state.");
         return false;
     }
     return m_tls_enabled ? tls_start() : start_at_once();
 }
 
-bool ServerSocket::start_at_once() 
+bool ServerSocket::start_at_once()
 {
     assert(m_state == State::Init);
     m_state = State::Started;
@@ -56,7 +56,7 @@ void ServerSocket::shutdown()
     }
 }
 
-void ServerSocket::shutdown_at_once() 
+void ServerSocket::shutdown_at_once()
 {
     ::shutdown(m_socket, SD_BOTH);
     ::closesocket(m_socket);
@@ -67,7 +67,7 @@ void ServerSocket::shutdown_at_once()
 bool ServerSocket::receive(char* buf, size_t size)
 {
     if (m_state != State::Started) {
-        Log::error("[ServerSocket::receive] Invalid state.");
+        LOG_ERROR("Invalid state.");
         return false;
     }
     return m_tls_enabled ? tls_start_receive(buf, size, false) : start_receive(buf, size);
@@ -83,7 +83,7 @@ bool ServerSocket::start_receive(char* buf, size_t size)
     wsabuf.len = size;
     auto result = WSARecv(m_socket, &wsabuf, 1, nullptr, &flags, event, nullptr);
     if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
-        Log::error("[ServerSocket::start_receive] WSARecv failed with error: ", WSAGetLastError());
+        LOG_ERROR("WSARecv failed with error: ", WSAGetLastError());
         delete event;
         return false;
     }
@@ -111,7 +111,7 @@ bool ServerSocket::tls_start_receive(char* user_buf, size_t user_buf_size, bool 
     wsabuf.len = m_buf.size() - m_buf_used;
     auto result = WSARecv(m_socket, &wsabuf, 1, nullptr, &flags, event, nullptr);
     if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
-        Log::error("[ServerSocket::start_receive] WSARecv failed with error: ", WSAGetLastError());
+        LOG_ERROR("WSARecv failed with error: ", WSAGetLastError());
         InterlockedExchange(&m_tls_receiving, 0);
         delete event;
         return false;
@@ -124,12 +124,12 @@ void ServerSocket::do_receive_event(ReceiveEvent* event)
     DWORD io_size;
     DWORD flags;
     if (!WSAGetOverlappedResult(m_socket, event, &io_size, FALSE, &flags)) {
-        Log::error("[ServerSocket::do_receive_event] WSAGetOverlappedResult failed with error: ", WSAGetLastError());
+        LOG_ERROR("WSAGetOverlappedResult failed with error: ", WSAGetLastError());
         delete event;
         return;
     }
     if (!io_size) {
-        Log::info("[ServerSocket::do_receive_event] Client is shutting down.");
+        LOG_INFO("Client is shutting down.");
         delete event;
         shutdown();
         return;
@@ -171,7 +171,7 @@ void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t r
         in_buf[3].BufferType = SECBUFFER_EMPTY;
 
         status = sspi->DecryptMessage(&m_ctx, &msg, 0, nullptr);
-        Log::verbose("[ServerSocket::tls_do_receive] DecryptMessage: ", status);
+        LOG_VERBOSE("DecryptMessage: ", status);
     }
 
     if (status == SEC_E_INCOMPLETE_MESSAGE) {
@@ -182,21 +182,21 @@ void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t r
     }
 
     if (status == SEC_I_CONTEXT_EXPIRED) {
-        Log::info("[ServerSocket::tls_do_receive] SEC_I_CONTEXT_EXPIRED is received!");
+        LOG_INFO("SEC_I_CONTEXT_EXPIRED is received!");
         //TLS is shutting down.
         tls_shutdown();
         return;
     }
 
     if (status == SEC_I_RENEGOTIATE) {
-        Log::info("[ServerSocket::tls_do_receive] SEC_I_RENEGOTIATE is received!");
+        LOG_INFO("SEC_I_RENEGOTIATE is received!");
         //NOTE: Renegotiation is not supported. We shutdown the session in this case.
         tls_shutdown();
         return;
     }
 
     if (status != SEC_E_OK) {
-        Log::error("[ServerSocket::tls_do_receive] DecryptMessage failed with error: ", status);
+        LOG_ERROR("DecryptMessage failed with error: ", status);
         m_handler->on_error(this);
         return;
     }
@@ -219,7 +219,7 @@ void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t r
 
     if (data_buf->cbBuffer > user_buf_size) {
         //NOTE: Is there a way to avoid/alleviate the short-buffer problem?
-        Log::error("[ServerSocket::tls_do_receive] Input buffer is not big enough. At least ", data_buf->cbBuffer, " bytes is required.");
+        LOG_ERROR("Input buffer is not big enough. At least ", data_buf->cbBuffer, " bytes is required.");
         m_handler->on_error(this);
         return;
     }
@@ -229,7 +229,7 @@ void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t r
     //is a sign of SHUTDOWN for plain socket recv call. And we'd better have the same semantics for higher level
     //user no matter TLS is on or off.
     if (data_buf->cbBuffer == 0) {
-        Log::warn("[ServerSocket::tls_do_receive] received zero-size message payload.");
+        LOG_WARN("received zero-size message payload.");
     }
     memcpy(user_buf, data_buf->pvBuffer, data_buf->cbBuffer);
     size_t result = data_buf->cbBuffer;
@@ -246,7 +246,7 @@ void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t r
     }
     if (extra_buf)
     {
-        Log::info("[ServerSocket::tls_do_receive] Extra content of ", extra_buf->cbBuffer, " bytes is detected.");
+        LOG_INFO("Extra content of ", extra_buf->cbBuffer, " bytes is detected.");
         //NOTE: Here memmove is used, rather than memcpy, because there may be overlap in src and dst.
         assert(extra_buf->pvBuffer == m_buf.data() + m_buf_used - extra_buf->cbBuffer);
         memmove(m_buf.data(), extra_buf->pvBuffer, extra_buf->cbBuffer);
@@ -264,7 +264,7 @@ void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t r
 bool ServerSocket::send(const char* buf, size_t size)
 {
     if (m_state != State::Started) {
-        Log::error("[ServerSocket::send] Invalid state.");
+        LOG_ERROR("Invalid state.");
         return false;
     }
     return m_tls_enabled ? tls_start_send(buf, size) : start_send(buf, size);
@@ -279,7 +279,7 @@ bool ServerSocket::start_send(const char* buf, size_t size)
     wsabuf.len = size;
     auto result = WSASend(m_socket, &wsabuf, 1, nullptr, 0, event, nullptr);
     if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
-        Log::error("[ServerSocket::send] WSASend failed with error: ", WSAGetLastError());
+        LOG_ERROR("WSASend failed with error: ", WSAGetLastError());
         delete event;
         return false;
     }
@@ -324,7 +324,7 @@ bool ServerSocket::tls_start_send(const char* buf, size_t size)
 
     auto status = sspi->EncryptMessage(&m_ctx, 0, &msg, 0);
     if (FAILED(status)) {
-        Log::error("[ServerSocket::tls_start_send] EncryptMessage failed with error: ", status);
+        LOG_ERROR("EncryptMessage failed with error: ", status);
         //m_send_buf.clear();
         return false;
     }
@@ -341,7 +341,7 @@ bool ServerSocket::tls_start_send(const char* buf, size_t size)
     wsabuf.len = total;
     auto result = WSASend(m_socket, &wsabuf, 1, nullptr, 0, event, nullptr);
     if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
-        Log::error("[ServerSocket::tls_start_send] WSASend failed with error: ", WSAGetLastError());
+        LOG_ERROR("WSASend failed with error: ", WSAGetLastError());
         InterlockedExchange(&m_tls_sending, 0);
         delete event;
         return false;
@@ -354,7 +354,7 @@ void ServerSocket::do_send_event(SendEvent* event)
     DWORD io_size;
     DWORD flags;
     if (!WSAGetOverlappedResult(m_socket, event, &io_size, FALSE, &flags)) {
-        Log::error("[ServerSocket::do_send_event] WSAGetOverlappedResult failed with error: ", WSAGetLastError());
+        LOG_ERROR("WSAGetOverlappedResult failed with error: ", WSAGetLastError());
         delete event;
         return;
     }
@@ -415,7 +415,7 @@ bool ServerSocket::tls_start_handshake_receive()
     wsabuf.len = m_buf.size() - m_buf_used;
     auto result = WSARecv(m_socket, &wsabuf, 1, nullptr, &flags, event, nullptr);
     if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
-        Log::error("[ServerSocket::tls_start_handshake_receive] WSARecv failed with error: ", WSAGetLastError());
+        LOG_ERROR("WSARecv failed with error: ", WSAGetLastError());
         delete event;
         return false;
     }
@@ -430,7 +430,7 @@ bool ServerSocket::tls_start_handshake_send(const char* buf, size_t size)
     wsabuf.len = size;
     auto result = WSASend(m_socket, &wsabuf, 1, nullptr, 0, event, nullptr);
     if (result == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
-        Log::error("[ServerSocket::tls_start_handshake_send] WSASend failed with error: ", WSAGetLastError());
+        LOG_ERROR("WSASend failed with error: ", WSAGetLastError());
         delete event;
         return false;
     }
@@ -444,7 +444,7 @@ void ServerSocket::do_handshake_receive_event(HandshakeReceiveEvent* event)
     bool error = !WSAGetOverlappedResult(m_socket, event, &io_size, FALSE, &flags);
     delete event;
     if (error) {
-        Log::error("[ServerSocket::do_handshake_receive_event] WSAGetOverlappedResult failed with error: ", WSAGetLastError());
+        LOG_ERROR("WSAGetOverlappedResult failed with error: ", WSAGetLastError());
         m_handler->on_error(this);
         return;
     }
@@ -498,7 +498,7 @@ void ServerSocket::do_handshake_receive_event(HandshakeReceiveEvent* event)
     if (out_buf[0].cbBuffer != 0 && out_buf[0].pvBuffer != nullptr)
     {
         if (!tls_start_handshake_send((char*)out_buf[0].pvBuffer, out_buf[0].cbBuffer)) {
-            Log::error("[ServerSocket::do_handshake_receive_event] Failed sending out handshake message.");
+            LOG_ERROR("Failed sending out handshake message.");
             sspi->FreeContextBuffer(out_buf[0].pvBuffer);
             m_handler->on_error(this);
             return;
@@ -506,15 +506,15 @@ void ServerSocket::do_handshake_receive_event(HandshakeReceiveEvent* event)
     }
 
     if (status == SEC_E_INCOMPLETE_MESSAGE) {
-        Log::info("[ServerSocket::do_handshake_receive_event] SEC_E_INCOMPLETE_MESSAGE");
+        LOG_INFO("SEC_E_INCOMPLETE_MESSAGE");
         tls_start_handshake_receive();
         return;
     }
 
     if (status == SEC_I_CONTINUE_NEEDED) {
-        Log::info("[ServerSocket::do_handshake_receive_event] SEC_I_CONTINUE_NEEDED");
+        LOG_INFO("SEC_I_CONTINUE_NEEDED");
         if (in_buf[1].BufferType == SECBUFFER_EXTRA) {
-            Log::error("[ServerSocket::do_handshake_receive_event] Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
+            LOG_ERROR("Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
             m_handler->on_error(this);
         }
         else {
@@ -526,14 +526,14 @@ void ServerSocket::do_handshake_receive_event(HandshakeReceiveEvent* event)
 
     if (status != SEC_E_OK)
     {
-        Log::error("[ServerSocket::do_handshake_receive_event] AcceptSecurityContext failed with: ", status);
+        LOG_ERROR("AcceptSecurityContext failed with: ", status);
         m_handler->on_error(this);
         return;
     }
 
-    Log::info("[ServerSocket::do_handshake_receive_event] SEC_E_OK");
+    LOG_INFO("SEC_E_OK");
     if (in_buf[1].BufferType == SECBUFFER_EXTRA) {
-        Log::info("[ServerSocket::do_handshake_receive_event] Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
+        LOG_INFO("Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
         //Save any extra content read in
         //NOTE: Here memmove is used, rather than memcpy, because there may be overlap in src and dst.
         memmove(m_buf.data(), m_buf.data() + m_buf_used - in_buf[1].cbBuffer, in_buf[1].cbBuffer);
@@ -547,7 +547,7 @@ void ServerSocket::do_handshake_receive_event(HandshakeReceiveEvent* event)
 
     status = sspi->QueryContextAttributes(&m_ctx, SECPKG_ATTR_STREAM_SIZES, &m_size);
     if (status != SEC_E_OK) {
-        Log::error("[ServerSocket::do_handshake_receive_event] QueryContextAttributes failed with: ", status);
+        LOG_ERROR("QueryContextAttributes failed with: ", status);
         m_handler->on_error(this);
         return;
     }
@@ -564,7 +564,7 @@ void ServerSocket::do_handshake_send_event(HandshakeSendEvent* event)
     sspi->FreeContextBuffer(event->m_buf);  //TODO: Some way to ensure the buf gets freed?
     delete event;
     if (error) {
-        Log::error("[ServerSocket::do_handshake_send_event] WSAGetOverlappedResult failed with error: ", WSAGetLastError());
+        LOG_ERROR("WSAGetOverlappedResult failed with error: ", WSAGetLastError());
         m_handler->on_error(this);
         return;
     }
@@ -581,7 +581,7 @@ bool ServerSocket::create_server_cred()
     m_cert = Certificate::get(m_server_name);
     if (!m_cert) {
         //TODO: Log can output wstring.
-        Log::error("[ServerSocket::create_server_cred] Server certificate is not found!");
+        LOG_ERROR("Server certificate is not found!");
         return false;
     }
     SCHANNEL_CRED schannel_cred{};
@@ -614,10 +614,10 @@ bool ServerSocket::create_server_cred()
     );
     if (status != SEC_E_OK) {
         if (status == SEC_E_UNKNOWN_CREDENTIALS) {
-            Log::error("[ServerSocket::create_server_cred] AcquireCredentialsHandle failed with SEC_E_UNKNOWN_CREDENTIALS. The server certificate is probabaly invalid!");
+            LOG_ERROR("AcquireCredentialsHandle failed with SEC_E_UNKNOWN_CREDENTIALS. The server certificate is probabaly invalid!");
         }
         else {
-            Log::error("[ServerSocket::create_server_cred] AcquireCredentialsHandle failed with: ", status);
+            LOG_ERROR("AcquireCredentialsHandle failed with: ", status);
         }
     }
     return (status == SEC_E_OK);

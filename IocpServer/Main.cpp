@@ -23,7 +23,7 @@ SOCKET create_server_socket() {
 
     auto result = getaddrinfo(NULL, DEFAULT_PORT, &hints, &addr);
     if (result != 0) {
-        Log::error("getaddrinfo failed with error: ", result);
+        LOG_ERROR("getaddrinfo failed with error: ", result);
         return INVALID_SOCKET;
     }
 
@@ -31,7 +31,7 @@ SOCKET create_server_socket() {
     //auto listen_socket = WSASocket(addr->ai_family, addr->ai_socktype, addr->ai_protocol, nullptr, 0, WSA_FLAG_OVERLAPPED);
     auto listen_socket = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
     if (listen_socket == INVALID_SOCKET) {
-        Log::error("socket failed with error: ", WSAGetLastError());
+        LOG_ERROR("socket failed with error: ", WSAGetLastError());
         freeaddrinfo(addr);
         return INVALID_SOCKET;
     }
@@ -39,14 +39,14 @@ SOCKET create_server_socket() {
     result = bind(listen_socket, addr->ai_addr, (int)addr->ai_addrlen);
     freeaddrinfo(addr);
     if (result == SOCKET_ERROR) {
-        Log::error("bind failed with error: ", WSAGetLastError());
+        LOG_ERROR("bind failed with error: ", WSAGetLastError());
         closesocket(listen_socket);
         return INVALID_SOCKET;
     }
 
     result = listen(listen_socket, SOMAXCONN);
     if (result == SOCKET_ERROR) {
-        Log::error("listen failed with error: ", WSAGetLastError());
+        LOG_ERROR("listen failed with error: ", WSAGetLastError());
         closesocket(listen_socket);
         return INVALID_SOCKET;
     }
@@ -68,7 +68,7 @@ bool create_iocp_workers(HANDLE iocp) {
     for (size_t i = 0; i < g_worker_count; i++) {
         g_workers[i] = (HANDLE)_beginthreadex(nullptr, 0, iocp_worker, iocp, 0, nullptr);
         if (!g_workers[i]) {
-            Log::error("_beginthreadex failed with error: ", GetLastError());
+            LOG_ERROR("_beginthreadex failed with error: ", GetLastError());
             return false;
         }
     }
@@ -88,7 +88,7 @@ void stop_iocp_workers(HANDLE iocp) {
 bool g_exit = false;
 
 BOOL WINAPI CtrlHandler(DWORD event) {
-    Log::info("Terminating...");
+    LOG_INFO("Terminating...");
     g_exit = true;
     Sleep(1000 * 5);
     return FALSE; //Let default handler terminate the process
@@ -106,13 +106,13 @@ int main(int argc, char ** argv) {
     }
 
     if (!SetConsoleCtrlHandler(CtrlHandler, TRUE)) {
-        Log::error("SetConsoleCtrlHandler failed with error: ", GetLastError());
+        LOG_ERROR("SetConsoleCtrlHandler failed with error: ", GetLastError());
         return 1;
     }
 
     auto iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
     if (!iocp) {
-        Log::error("CreateIoCompletionPort failed with error: ", GetLastError());
+        LOG_ERROR("CreateIoCompletionPort failed with error: ", GetLastError());
         return 1;
     }
 
@@ -124,7 +124,7 @@ int main(int argc, char ** argv) {
     WSADATA wsa_data;
     int result = WSAStartup(MAKEWORD(2, 2), &wsa_data);
     if (result != 0) {
-        Log::error("WSAStartup failed with error: ", result);
+        LOG_ERROR("WSAStartup failed with error: ", result);
         stop_iocp_workers(iocp);
         CloseHandle(iocp);
         return 1;
@@ -141,7 +141,7 @@ int main(int argc, char ** argv) {
     u_long nonblock = 1;
     result = ioctlsocket(server_socket, FIONBIO, &nonblock);
     if (result == SOCKET_ERROR) {
-        Log::error("ioctlsocket failed with error: ", WSAGetLastError());
+        LOG_ERROR("ioctlsocket failed with error: ", WSAGetLastError());
         stop_iocp_workers(iocp);
         CloseHandle(iocp);
         closesocket(server_socket);
@@ -160,12 +160,12 @@ int main(int argc, char ** argv) {
         auto socket = accept(server_socket, nullptr, 0);
         if (socket == INVALID_SOCKET) {
             if (WSAEWOULDBLOCK != WSAGetLastError()) {
-                Log::error("accept failed with error: ", WSAGetLastError());
+                LOG_ERROR("accept failed with error: ", WSAGetLastError());
             }
             continue;
         }
 
-        Log::info("Accepted a connection.");
+        LOG_INFO("Accepted a connection.");
 
         //TODO: Some way to clean up handler and server in some exception cases, say iocp is closed.
         auto handler = new EchoServer(BUF_SIZE);
@@ -176,10 +176,10 @@ int main(int argc, char ** argv) {
         }
     }
 
-    Log::info("Shutting down server socket...");
+    LOG_INFO("Shutting down server socket...");
     shutdown(server_socket, SD_BOTH);
     closesocket(server_socket);
-    Log::info("Stopping IOCP workers...");
+    LOG_INFO("Stopping IOCP workers...");
     stop_iocp_workers(iocp);
     CloseHandle(iocp);
     WSACleanup();
@@ -193,14 +193,14 @@ unsigned int __stdcall iocp_worker(void* arg) {
         ServerSocket * socket;
         LPOVERLAPPED overlapped;
         if (!GetQueuedCompletionStatus(iocp, &io_size, (PULONG_PTR)&socket, &overlapped, INFINITE)) {
-            Log::warn("GetQueuedCompletionStatus failed with error: ", GetLastError());
+            LOG_WARN("GetQueuedCompletionStatus failed with error: ", GetLastError());
             if (GetLastError() == ERROR_ABANDONED_WAIT_0) { //ERROR_ABANDONED_WAIT_0 means iocp has been closed.
                 break;
             }
         }
 
         if (!socket && !overlapped) {
-            Log::info("Worker is stopping...");
+            LOG_INFO("Worker is stopping...");
             break;
         }
 

@@ -4,28 +4,28 @@
 
 EchoServer::~EchoServer()
 {
-    Log::info("[EchoServer::~EchoServer]");
+    LOG_INFO("");
 }
 
 void EchoServer::on_started(ServerSocket* socket)
 {
-    Log::verbose("[EchoServer::on_started] Start receiving...");
+    LOG_VERBOSE("Start receiving...");
     if (!socket->receive(m_buf.data(), m_buf.size())) {
-        Log::error("[EchoServer::on_started] receive failed!");
+        LOG_ERROR("receive failed!");
         socket->shutdown();
     }
 }
 
 void EchoServer::on_shutdown(ServerSocket* socket)
 {
-    Log::verbose("[EchoServer::on_shutdown] Nothing to do.");
+    LOG_VERBOSE("Nothing to do.");
     //NOTE: Delete the socket in the shutdown handler once and avoid deleting the socket multiple times.
     delete socket;
 }
 
 void EchoServer::on_received(ServerSocket* socket, char* buf, size_t size, size_t received)
 {
-    Log::verbose("[EchoServer::on_received] received: ", received);
+    LOG_VERBOSE("received: ", received);
     if (!socket->send(buf, received)) {
         socket->shutdown();
     }
@@ -33,7 +33,7 @@ void EchoServer::on_received(ServerSocket* socket, char* buf, size_t size, size_
 
 void EchoServer::on_sent(ServerSocket* socket, const char* buf, size_t size, size_t sent)
 {
-    Log::verbose("[EchoServer::on_sent] sent: ", sent, "target: ", size);
+    LOG_VERBOSE("sent: ", sent, "target: ", size);
     if (size > sent) {
         if (!socket->send(buf + sent, size - sent)) {
             socket->shutdown();
@@ -48,6 +48,6 @@ void EchoServer::on_sent(ServerSocket* socket, const char* buf, size_t size, siz
 
 void EchoServer::on_error(ServerSocket* socket)
 {
-    Log::error("[EchoServer::on_error] ServerSocket error in state: ", (int)socket->get_state());
+    LOG_ERROR("ServerSocket error in state: ", (int)socket->get_state());
     socket->shutdown();
 }
