@@ -9,7 +9,7 @@ EchoServer::~EchoServer()
 
 void EchoServer::on_started(ServerSocket* socket)
 {
-    LOG_VERBOSE("Start receiving...");
+    LOG_INFO("Start receiving...");
     if (!socket->receive(m_buf.data(), m_buf.size())) {
         LOG_ERROR("receive failed!");
         socket->shutdown();
@@ -18,7 +18,7 @@ void EchoServer::on_started(ServerSocket* socket)
 
 void EchoServer::on_shutdown(ServerSocket* socket)
 {
-    LOG_VERBOSE("Nothing to do.");
+    LOG_INFO("Destroying ServerSocket...");
     //NOTE: Delete the socket in the shutdown handler once and avoid deleting the socket multiple times.
     delete socket;
 }

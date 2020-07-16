@@ -34,6 +34,7 @@ ServerSocket::~ServerSocket()
 
 bool ServerSocket::start()
 {
+    LOG_INFO("");
     if (m_state != State::Init) {
         LOG_ERROR("Invalid state.");
         return false;
@@ -51,6 +52,7 @@ bool ServerSocket::start_at_once()
 
 void ServerSocket::shutdown()
 {
+    LOG_INFO("");
     if (m_state == State::Started) {
         m_tls_enabled ? tls_shutdown() : shutdown_at_once();
     }
@@ -99,7 +101,7 @@ bool ServerSocket::tls_start_receive(char* user_buf, size_t user_buf_size, bool 
         return true;
     }
     if (InterlockedCompareExchange(&m_tls_receiving, 1, 0)) {
-        assert(0 && "Concurrent receiving is not supported.");
+        LOG_ERROR("Concurrent receiving is not supported.");
         return false;
     }
     //We don't use user buf for receiving TLS message. But we save it in a ReceiveEvent for later use.
@@ -175,6 +177,7 @@ void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t r
     }
 
     if (status == SEC_E_INCOMPLETE_MESSAGE) {
+        LOG_INFO("SEC_E_INCOMPLETE_MESSAGE is received. Continue receiving...");
         if (!tls_start_receive(user_buf, user_buf_size, true)) {
             m_handler->on_error(this);
         }
@@ -229,7 +232,7 @@ void ServerSocket::tls_do_receive(char* user_buf, size_t user_buf_size, size_t r
     //is a sign of SHUTDOWN for plain socket recv call. And we'd better have the same semantics for higher level
     //user no matter TLS is on or off.
     if (data_buf->cbBuffer == 0) {
-        LOG_WARN("received zero-size message payload.");
+        LOG_WARN("Received a message of empty payload.");
     }
     memcpy(user_buf, data_buf->pvBuffer, data_buf->cbBuffer);
     size_t result = data_buf->cbBuffer;
@@ -330,7 +333,7 @@ bool ServerSocket::tls_start_send(const char* buf, size_t size)
     }
 
     if (InterlockedCompareExchange(&m_tls_sending, 1, 0)) {
-        assert(0 && "Concurrent sending is not supported.");
+        LOG_ERROR("Concurrent sending is not supported.");
         return false;
     }
 
@@ -397,6 +400,7 @@ bool ServerSocket::tls_init()
     if (!sspi) {
         sspi = InitSecurityInterface();
         if (!sspi) {
+            LOG_ERROR("InitSecurityInterface failed.");
             return false;
         }
     }
@@ -532,6 +536,7 @@ void ServerSocket::do_handshake_receive_event(HandshakeReceiveEvent* event)
     }
 
     LOG_INFO("SEC_E_OK");
+
     if (in_buf[1].BufferType == SECBUFFER_EXTRA) {
         LOG_INFO("Extra content of ", in_buf[1].cbBuffer, " bytes is detected.");
         //Save any extra content read in

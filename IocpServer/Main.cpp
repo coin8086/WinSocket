@@ -98,12 +98,17 @@ int main(int argc, char ** argv) {
     if (!Log::init()) {
         return 1;
     }
-    Log::level = Log::Level::Info;
-
     bool using_tls = false;
-    if (argc == 2 && strcmp(argv[1], "-t") == 0) {
-        using_tls = true;
+    bool verbose = false;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "-t")) {
+            using_tls = true;
+        }
+        else if (!strcmp(argv[i], "-v")) {
+            verbose = true;
+        }
     }
+    Log::level = verbose ? Log::Level::Verbose : Log::Level::Info;
 
     if (!SetConsoleCtrlHandler(CtrlHandler, TRUE)) {
         LOG_ERROR("SetConsoleCtrlHandler failed with error: ", GetLastError());
