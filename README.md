@@ -1,4 +1,4 @@
-# TLS Examples in Schanel and IOCP
+# TLS Examples in Schannel and IO Completion Ports
 
 ## Before You Run
 You need a certificate for the server. The Subject Name of the certificate must be "localhost", and the certificate must be stored in the "My" store of the system's certificate store, in the "Local Machine". The certificate can be self issued but must not be expired.
