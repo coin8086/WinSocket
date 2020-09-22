@@ -367,6 +367,9 @@ bool My::SecureSocket::negotiate_as_server()
             break;
         read += received;
 
+        Log::info("[SecureSocket::negotiate_as_server] received:");
+        Log::mem(m_buf.data(), read);
+
         //AcceptSecurityContext
         DWORD req_context_flags = ASC_REQ_ALLOCATE_MEMORY | ASC_REQ_CONFIDENTIALITY | ASC_REQ_EXTENDED_ERROR |
             ASC_REQ_REPLAY_DETECT | ASC_REQ_SEQUENCE_DETECT | ASC_REQ_STREAM;
@@ -413,6 +416,9 @@ bool My::SecureSocket::negotiate_as_server()
         //Send content in out_buf if any
         if (out_buf[0].cbBuffer != 0 && out_buf[0].pvBuffer != nullptr)
         {
+            Log::info("[SecureSocket::negotiate_as_server] send:");
+            Log::mem(out_buf[0].pvBuffer, out_buf[0].cbBuffer);
+
             auto sent = Socket::send((char *)out_buf[0].pvBuffer, out_buf[0].cbBuffer);
             sspi->FreeContextBuffer(out_buf[0].pvBuffer);
             if (sent != out_buf[0].cbBuffer) {

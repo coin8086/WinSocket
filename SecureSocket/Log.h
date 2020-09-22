@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iostream>
+#include <cstdio>
 
 namespace My {
     class Log
@@ -43,6 +44,25 @@ namespace My {
             std::cerr << "[INFO] ";
             output(msg, args...);
             std::cerr << std::endl;
+        }
+
+        static void mem(const void * addr, size_t len) {
+            if (level < Level::Info) {
+                return;
+            }
+            fprintf(stderr, "[MEM] %u byte(s):", (int)len);
+            const unsigned char* p = (const unsigned char *)addr;
+            const size_t bytes_per_line = 16;
+            for (size_t i = 0; i < len; i++) {
+                if (i % bytes_per_line) {
+                    fputc(' ', stderr);
+                }
+                else {
+                    fputc('\n', stderr);
+                }
+                fprintf(stderr, "%02X", p[i]);
+            }
+            fputc('\n', stderr);
         }
 
     private:
