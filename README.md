@@ -1,4 +1,4 @@
-# Run Test
+# TLS Examples in Schanel and IOCP
 
 ## Before You Run
 You need a certificate for the server. The Subject Name of the certificate must be "localhost", and the certificate must be stored in the "My" store of the system's certificate store, in the "Local Machine". The certificate can be self issued but must not be expired.
@@ -44,3 +44,6 @@ You can also try to script multiple clients interacting with an IOCP server at t
 ```bash
 for i in {1..5} ; do ./SimpleSocketClient.exe localhost -t 1>test-$i <file-to-send & done
 ```
+
+## TLS in a Nutshell
+https://gist.github.com/coin8086/1cd0411447066a5a02be6a3e493479e2
